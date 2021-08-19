@@ -1,0 +1,49 @@
+durable, resumable, asynchronous file transfer
+==============================================
+
+frame:
+    magic | version
+    len
+    cbor payload
+
+start_req
+    file tree:
+        list of leaf dirs/perms
+        list of files/perms
+
+start_rep
+    status (ok/error)
+    session id
+    file-id mapping
+
+[idempotent]
+chunk_req
+    session id
+    file id
+    offset
+    len
+    [hash]
+
+chunk_rep
+    session id
+    file id
+    offset
+    len
+
+ping
+    session id
+
+pong
+    session id
+
+status_req
+    session id
+
+status_rep
+    session id
+    session start time
+    session end time
+    pct complete
+
+--
+- links operations: cqe wait hangs once we need > 7 file splice operations.
