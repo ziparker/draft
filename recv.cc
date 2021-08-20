@@ -26,6 +26,7 @@
 
 #include <cstdio>
 #include <iostream>
+#include <optional>
 
 #include <getopt.h>
 #include <poll.h>
@@ -56,6 +57,7 @@ struct Options
     std::vector<draft::util::NetworkTarget> targets{ };
     draft::util::NetworkTarget service{"localhost", 2020};
     size_t rxBufSize{1u << 16};
+    bool noFile{ };
 };
 
 size_t parseSize(const std::string &arg)
@@ -74,9 +76,10 @@ size_t parseSize(const std::string &arg)
 
 Options parseOpts(int argc, char **argv)
 {
-    constexpr const char *shortOpts = "b:hs:t:";
+    constexpr const char *shortOpts = "b:hns:t:";
     constexpr const struct option longOpts[] = {
         {"help", no_argument, nullptr, 'h'},
+        {"nofile", no_argument, nullptr, 'n'},
         {"rxbuf", required_argument, nullptr, 'b'},
         {"service", required_argument, nullptr, 's'},
         {"target", required_argument, nullptr, 't'},
@@ -88,7 +91,7 @@ Options parseOpts(int argc, char **argv)
 
     const auto usage = [argv] {
             std::cerr << fmt::format(
-                "usage: {} recv [-b <rx buf size>][-h][-s <server[:port]>] -t target [-t target ...]\n"
+                "usage: {} recv [-b <rx buf size>][-h][-n][-s <server[:port]>] -t target [-t target ...]\n"
                 , ::basename(argv[0]));
         };
 
@@ -104,6 +107,9 @@ Options parseOpts(int argc, char **argv)
             case 'h':
                 usage();
                 std::exit(0);
+            case 'n':
+                opts.noFile = true;
+                break;
             case 's':
                 opts.service = draft::util::parseTarget(optarg);
                 break;
@@ -224,7 +230,10 @@ void awaitTransfer(const Options &opts)
     spdlog::info("creating target files.");
     util::createTargetFiles(".", req.config.fileInfo);
 
-    auto fileAgent = draft::util::FileAgent{std::move(req.config)};
+    auto fileAgent = std::optional<draft::util::FileAgent>{ };
+
+    if (!opts.noFile)
+        fileAgent = draft::util::FileAgent{std::move(req.config)};
 
     rxMgr.setChunkCallback(
         [&fileAgent](const wire::ChunkHeader &header, draft::util::Buffer buf) {
@@ -232,7 +241,8 @@ void awaitTransfer(const Options &opts)
                 , header.fileId
                 , header.fileOffset);
 
-            fileAgent.updateFile(header.fileId, header.fileOffset, std::move(buf));
+            if (fileAgent)
+                fileAgent->updateFile(header.fileId, header.fileOffset, std::move(buf));
         });
 
     spdlog::info("starting transfer.");
@@ -252,7 +262,8 @@ void awaitTransfer(const Options &opts)
         }
     }
 
-    fileAgent.drain();
+    if (fileAgent)
+        fileAgent->drain();
 
     spdlog::info("rx'd {}", rxMgr.chunkCount());
 }
