@@ -162,11 +162,20 @@ private:
 
         if (!chunkValid(*chunk))
         {
-            spdlog::warn("invalid chunk at {} buf offset {}"
+            spdlog::warn("invalid chunk at {} buf offset {} ({:#x})"
                 , static_cast<const void *>(view.data)
+                , reinterpret_cast<uintptr_t>(view.data) - reinterpret_cast<uintptr_t>(buf_.data())
                 , reinterpret_cast<uintptr_t>(view.data) - reinterpret_cast<uintptr_t>(buf_.data()));
 
-            spdlog::warn(" -> buf data: {}", spdlog::to_hex(view.data, view.data + 8));
+            #if 0
+            *view.data = 0xff;
+            spdlog::warn(" -> buf data: {}", spdlog::to_hex(begin(buf_), end(buf_)));
+
+            std::exit(42);
+            #else
+            *view.data = 0xff;
+            spdlog::warn(" -> buf data: {}", spdlog::to_hex(view.data, view.data + view.size));
+            #endif
 
             ++view.data;
             --view.size;
@@ -174,6 +183,9 @@ private:
         }
 
         auto chunkLen = sizeof(*chunk) + chunk->payloadLength;
+
+        spdlog::info("  chunk len: {}", chunkLen);
+        spdlog::info("  view len: {}", view.size);
 
         if (chunkLen > view.size)
             return view;

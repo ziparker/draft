@@ -278,11 +278,7 @@ int recv(int argc, char **argv)
 
     auto opts = parseOpts(argc, argv);
 
-    try {
-        awaitTransfer(opts);
-    } catch (const std::exception &ex) {
-        spdlog::error("exception: {}", ex.what());
-    }
+    awaitTransfer(opts);
 
     spdlog::info("recv complete.");
 

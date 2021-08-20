@@ -262,6 +262,8 @@ void MmapAgent::initNetwork(const AgentConfig &conf)
 
     if (fdMap_.empty())
         throw std::runtime_error("Agent: no targets desciptors available.");
+
+    fdIter_ = begin(fdMap_);
 }
 
 ////////////////////////////////////////////////////////////////////////////////

@@ -518,7 +518,7 @@ public:
         const auto payloadLen = mtuPayload(mtu_);
 
         auto mmap = std::make_shared<ScopedMMap>(
-            ScopedMMap::map(nullptr, fileLen, PROT_READ, MAP_SHARED, fd.get(), 0));
+            ScopedMMap::map(nullptr, fileLen, PROT_READ, MAP_PRIVATE | MAP_POPULATE, fd.get(), 0));
 
         spdlog::info("file len: {} ({} - {})"
             , fileLen
@@ -612,6 +612,14 @@ private:
 
     int selectSocket()
     {
+        if (useUring_)
+        {
+            if (++fdIter_ == end(fdMap_))
+                fdIter_ = begin(fdMap_);
+
+            return fdIter_->first;
+        }
+
         int selectedFd{-1};
 
         const auto selector = [this, &selectedFd](const std::vector<epoll_event> &evts) {
@@ -781,10 +789,33 @@ private:
                     continue;
                 }
 
+                if (cqe->res == -ECANCELED)
+                {
+                    spdlog::info("re-queue canceled write for {} (len: {})."
+                        , xfer->header.fileId
+                        , xfer->xferLen);
+
+                    if (auto stat = enqueueNetWritePrepped(std::move(xfer)))
+                    {
+                        throw std::runtime_error(fmt::format(
+                            "unable to handle prepped write following canceled write: {}."
+                            , std::strerror(-stat)));
+                    }
+
+                    if (hadRequired)
+                        ++required;
+
+                    if (io_uring_submit(&ring_) < 0)
+                        throw std::system_error(errno, std::system_category(), "io_uring_submit");
+
+                    continue;
+                }
+
                 throw std::system_error(-cqe->res, std::system_category(),
-                    fmt::format("cqe failed for offset {} (addr {})"
+                    fmt::format("cqe failed for offset {} (addr {}): cqe status {}"
                         , xfer->fileOffset
-                        , xfer->iovs[1].iov_base));
+                        , xfer->iovs[1].iov_base
+                        , cqe->res));
             }
 
             if (cqe->res > 0 &&
@@ -857,8 +888,7 @@ private:
             xfer->fileOffset, xfer->xferLen);
 
         io_uring_sqe_set_data(sqe, xfer.release());
-        // TODO: set link & handle cancellations.
-        io_uring_sqe_set_flags(sqe, 0);
+        io_uring_sqe_set_flags(sqe, IOSQE_IO_LINK);
 
         return 0;
     }
@@ -884,8 +914,7 @@ private:
             xfer->fileOffset, xfer->xferLen, sizeof(wire::ChunkHeader) + xfer->payloadLen);
 
         io_uring_sqe_set_data(sqe, xfer.release());
-        // TODO: set link & handle cancellations.
-        io_uring_sqe_set_flags(sqe, 0);
+        io_uring_sqe_set_flags(sqe, IOSQE_IO_LINK);
 
         return 0;
     }
@@ -918,6 +947,7 @@ private:
     PollSet poll_{ };
     struct io_uring ring_{ };
     std::unordered_map<int, FdInfo> fdMap_{ };
+    std::unordered_map<int, FdInfo>::iterator fdIter_{ };
     size_t sqeCount_{ };
     size_t ringDepth_{ };
     unsigned mtu_{9000};
