@@ -1328,6 +1328,8 @@ void createTargetFiles(const std::string &root, const std::vector<FileInfo> &inf
 
 std::string dirname(std::string path);
 
+std::filesystem::path rootedPath(std::filesystem::path root, std::string path, std::string suffix);
+
 namespace net {
 
 ScopedFd bindTun(const std::string &name);

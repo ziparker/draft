@@ -105,6 +105,14 @@ SendOptions parseOptions(int argc, char **argv)
                 opts.service = util::parseTarget(optarg);
                 break;
             case 'S':
+                if (std::string{optarg}.size() > 1)
+                {
+                    spdlog::error("error: suffix (-S) is limited to one character ('{}' is not valid)."
+                        , optarg);
+
+                    std::exit(1);
+                }
+
                 opts.suffix = optarg;
                 break;
             case 't':

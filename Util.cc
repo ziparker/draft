@@ -288,6 +288,8 @@ void FileAgent::initUring(unsigned lenPwr)
 
 void FileAgent::initFileState(FileAgentConfig conf)
 {
+    namespace fs = std::filesystem;
+
     fileMap_.clear();
 
     auto infos = std::move(conf.fileInfo);
@@ -297,14 +299,17 @@ void FileAgent::initFileState(FileAgentConfig conf)
         auto state = FileState{ };
 
         // we expect files to have been created & allocated elsewhere.
-        auto path = conf.root + info.path + info.targetSuffix;
+        auto path = rootedPath(conf.root, info.path, info.targetSuffix);
         state.fd = ScopedFd{open(path.c_str(), O_RDWR)};
 
         if (state.fd.get() < 0)
-            throw std::system_error(errno, std::system_category(), "FileAgent: open");
+        {
+            throw std::system_error(errno, std::system_category(),
+                fmt::format("FileAgent: open '{}'", path.string()));
+        }
 
         spdlog::info("FileAgent: mapped file '{}' -> {}"
-            , path
+            , path.string()
             , info.id);
 
         auto id = info.id;
@@ -417,9 +422,8 @@ void createTargetFiles(const std::string &root, const std::vector<FileInfo> &inf
         if (S_ISDIR(info.status.mode))
             continue;
 
-        // TODO: check path rooting.
-        auto path = root + info.path + info.targetSuffix;
-        spdlog::info("createTargetFiles: create file '{}'", path);
+        auto path = rootedPath(root, info.path, info.targetSuffix);
+        spdlog::info("createTargetFiles: create file '{}'", path.string());
 
         fs::create_directories(util::dirname(path));
 
@@ -444,6 +448,16 @@ void createTargetFiles(const std::string &root, const std::vector<FileInfo> &inf
 std::string dirname(std::string path)
 {
     return ::dirname(path.data());
+}
+
+std::filesystem::path rootedPath(std::filesystem::path root, std::string path, std::string suffix)
+{
+    // TODO: proper path rooting.
+
+    path += std::move(suffix);
+    root /= std::move(path);
+
+    return root;
 }
 
 namespace net {
