@@ -753,7 +753,7 @@ private:
         xfer->iovs[0].iov_base = &xfer->header;
         xfer->iovs[0].iov_len = sizeof(xfer->header);
 
-        xfer->iovs[1].iov_base = xfer->buffer.uint8Data();
+        xfer->iovs[1].iov_base = xfer->buffer.data();
         xfer->iovs[1].iov_len = len;
 
         xfer->iovIndex = 1;
