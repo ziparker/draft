@@ -750,8 +750,6 @@ private:
         xfer->xferLen = len;
         xfer->payloadLen = len;
 
-        spdlog::info("aligned buf: {}", xfer->buffer.data());
-
         xfer->iovs[0].iov_base = &xfer->header;
         xfer->iovs[0].iov_len = sizeof(xfer->header);
 
