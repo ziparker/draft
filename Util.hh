@@ -694,22 +694,6 @@ private:
         return 0;
     }
 
-    int writeChunk(std::unique_ptr<TransferState> xfer)
-    {
-        if (!useUring_)
-        {
-            if (auto stat = syncWrite(std::move(xfer)))
-                spdlog::error("sync write: {}", std::strerror(-stat));
-        }
-        else
-        {
-            if (enqueueNetWrite(std::move(xfer)))
-                spdlog::error("enq write: {}", std::strerror(errno));
-        }
-
-        return 0;
-    }
-
     int syncWrite(std::unique_ptr<TransferState> xfer)
     {
         int stat{ };
@@ -755,6 +739,21 @@ private:
     {
         const auto hadRequired = !!required;
 
+        const auto enqueuePrepped = [this, hadRequired, &required](std::unique_ptr<TransferState> xfer) {
+                if (auto stat = enqueueXferPrepped(std::move(xfer)))
+                {
+                    throw std::runtime_error(fmt::format(
+                        "unable to handle prepped xfer following short/cancelled operation: {}."
+                        , std::strerror(-stat)));
+                }
+
+                if (io_uring_submit(&ring_) < 0)
+                    throw std::system_error(errno, std::system_category(), "io_uring_submit");
+
+                if (hadRequired)
+                    ++required;
+            };
+
         while (true)
         {
             io_uring_cqe *cqe{ };
@@ -794,35 +793,18 @@ private:
             {
                 if (cqe->res == -EAGAIN)
                 {
-                    if (auto stat = enqueueNetWritePrepped(std::move(xfer)))
-                    {
-                        throw std::runtime_error(fmt::format(
-                            "unable to handle eagain prepped write: {}."
-                            , std::strerror(-stat)));
-                    }
-
+                    enqueuePrepped(std::move(xfer));
                     continue;
                 }
 
                 if (cqe->res == -ECANCELED)
                 {
-                    spdlog::info("re-queue canceled write for {} (len: {})."
-                        , xfer->header.fileId
+                    spdlog::info("re-queue canceled {} for {} (len: {})."
+                        , xfer->isWrite ? "write" : "read"
+                        , xfer->header->fileId
                         , xfer->xferLen);
 
-                    if (auto stat = enqueueNetWritePrepped(std::move(xfer)))
-                    {
-                        throw std::runtime_error(fmt::format(
-                            "unable to handle prepped write following canceled write: {}."
-                            , std::strerror(-stat)));
-                    }
-
-                    if (hadRequired)
-                        ++required;
-
-                    if (io_uring_submit(&ring_) < 0)
-                        throw std::system_error(errno, std::system_category(), "io_uring_submit");
-
+                    enqueuePrepped(std::move(xfer));
                     continue;
                 }
 
@@ -836,29 +818,31 @@ private:
             if (cqe->res > 0 &&
                 static_cast<size_t>(cqe->res) != xfer->xferLen)
             {
-                spdlog::info("re-queue short write for {}: ({}/{})."
-                    , xfer->header.fileId
+                spdlog::info("re-queue short {} for {}: ({}/{})."
+                    , xfer->isWrite ? "write" : "read"
+                    , xfer->header->fileId
                     , cqe->res
                     , xfer->xferLen);
 
                 advanceXfer(*xfer, static_cast<size_t>(cqe->res));
 
-                spdlog::info(" -> re-queued write for {}"
+                spdlog::info(" -> re-queued {} for {}"
+                    , xfer->isWrite ? "write" : "read"
                     , xfer->xferLen);
 
-                if (auto stat = enqueueNetWritePrepped(std::move(xfer)))
-                {
-                    throw std::runtime_error(fmt::format(
-                        "unable to handle prepped write following short write: {}."
-                        , std::strerror(-stat)));
-                }
+                enqueuePrepped(std::move(xfer));
+                continue;
+            }
 
-                if (hadRequired)
-                    ++required;
+            // transfer has finished.
+            //
+            // if it is a file read, turn it into a net write and submit,
+            // otherwise, we're done.
+            if (!xfer->isWrite)
+            {
+                xfer = initWrite(std::move(xfer));
 
-                if (io_uring_submit(&ring_) < 0)
-                    throw std::system_error(errno, std::system_category(), "io_uring_submit");
-
+                enqueuePrepped(std::move(xfer));
                 continue;
             }
 
@@ -938,32 +922,6 @@ private:
         return 0;
     }
 
-    int enqueueNetWrite(std::unique_ptr<TransferState> xfer)
-    {
-        auto sqe = getSqe();
-
-        if (!sqe)
-        {
-            spdlog::info("unable to fetch sqe.");
-            return -EBUSY;
-        }
-
-        io_uring_prep_writev(
-            sqe,
-            xfer->fd,
-            &xfer->iov,
-            1,
-            0);
-
-        spdlog::debug("enqueue net write: {} {}",
-            xfer->fileOffset, xfer->xferLen);
-
-        io_uring_sqe_set_data(sqe, xfer.release());
-        io_uring_sqe_set_flags(sqe, IOSQE_IO_LINK);
-
-        return 0;
-    }
-
     int enqueueNetWritePrepped(std::unique_ptr<TransferState> xfer)
     {
         auto sqe = getSqe();
@@ -990,6 +948,14 @@ private:
         return 0;
     }
 
+    int enqueueXferPrepped(std::unique_ptr<TransferState> xfer)
+    {
+        if (xfer->isWrite)
+            return enqueueNetWritePrepped(std::move(xfer));
+
+        return enqueueFileReadPrepped(std::move(xfer));
+    }
+
     void advanceXfer(TransferState &xfer, size_t len)
     {
         if (len > xfer.xferLen)
@@ -1012,16 +978,13 @@ private:
 
     PollSet poll_{ };
     struct io_uring ring_{ };
-    struct io_uring readRing_{ };
     std::unordered_map<int, FdInfo> fdMap_{ };
     std::unordered_map<int, FdInfo>::iterator fdIter_{ };
     size_t sqeCount_{ };
-    size_t readSqeCount_{ };
     size_t ringDepth_{ };
-    size_t readRingDepth_{ };
     unsigned mtu_{9000};
     bool done_{ };
-    bool useUring_{ };
+    bool useUring_{true};
 };
 
 ////////////////////////////////////////////////////////////////////////////////
