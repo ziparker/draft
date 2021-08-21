@@ -779,6 +779,7 @@ private:
         xfer->xferLen = sizeof(xfer->header) + xfer->buffer.size();
 
         xfer->isWrite = true;
+        xfer->iovIndex = 0;
         xfer->fileOffset = 0;
 
         return xfer;
