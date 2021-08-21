@@ -512,26 +512,10 @@ public:
     {
         namespace fs = std::filesystem;
 
-        auto fd = ScopedFd{openFile(path)};
+        auto fd = ScopedFd{::open(path.c_str(), O_RDONLY | O_DIRECT)};
         const auto fileLen = fs::file_size(path);
 
         const auto payloadLen = mtuPayload(mtu_);
-
-        // TODO: - map_populate option for smallish files, huge page usage?
-        auto mmap = std::make_shared<ScopedMMap>(
-            ScopedMMap::map(nullptr, fileLen, PROT_READ, MAP_PRIVATE, fd.get(), 0));
-
-        if (madvise(mmap->data(), fileLen, MADV_SEQUENTIAL))
-        {
-            spdlog::warn("transferFile: unable to madvise on mapped file '{}': {}"
-                , path
-                , std::strerror(errno));
-        }
-
-        spdlog::info("file len: {} ({} - {})"
-            , fileLen
-            , mmap->data()
-            , mmap->data(fileLen));
 
         done_ = false;
 
@@ -546,30 +530,28 @@ public:
             {
                 const auto xferPayloadLen = std::min(fileLen - fileOffset, payloadLen);
 
-                auto xfer = initXfer(mmap, fileOffset, xferPayloadLen, fileId);
+                auto xfer = initReadXfer(fd.get(), fileOffset, xferPayloadLen, fileId);
 
+                #if 0
                 xfer->fd = selectSocket();
                 if (xfer->fd < 0)
                 {
                     spdlog::error("no descriptors are selectable for writing - waiting.");
                     continue;
                 }
+                #endif
 
                 spdlog::trace("offset: {} {} {} {}"
                     , fileOffset, xferPayloadLen, fileLen, sqeCount_);
 
                 fileOffset += xferPayloadLen;
 
-                writeChunk(std::move(xfer));
-                if (useUring_)
-                    ++sqeCount_;
+                readChunk(std::move(xfer));
+                ++sqeCount_;
 
                 ++chunkCount;
                 chunkXfer += sizeof(wire::ChunkHeader) + xferPayloadLen;
             }
-
-            if (!useUring_)
-                continue;
 
             if (startCount != sqeCount_)
             {
@@ -582,8 +564,7 @@ public:
 
         auto count = sqeCount_;
 
-        if (useUring_)
-            handleCqes(sqeCount_);
+        handleCqes(sqeCount_);
 
         spdlog::info("drain {} -> {}", count, sqeCount_);
         spdlog::info("xferred {} chunk(s), {} bytes", chunkCount, chunkXfer);
@@ -596,16 +577,17 @@ private:
 
     struct TransferState
     {
-        wire::ChunkHeader header{ };
+        wire::ChunkHeader *header{ };
 
-        SharedMMap fileMap{ };
-        iovec iovs[2]{ };
+        Buffer buffer{ };
+        iovec iov{ };
 
         size_t fileOffset{ };
         size_t xferLen{ };
         size_t payloadLen{ };
         unsigned iovIndex{ };
         int fd{-1};
+        bool isWrite{ };
     };
 
     struct FdInfo
@@ -662,21 +644,20 @@ private:
         return ScopedFd{::open(path.c_str(), O_RDONLY)};
     }
 
-    std::unique_ptr<TransferState> initXfer(const std::shared_ptr<ScopedMMap> &mmap, size_t offset, size_t len, uint16_t fileId)
+    std::unique_ptr<TransferState> initReadXfer(int fd, size_t offset, size_t len, uint16_t fileId)
     {
         auto xfer = std::make_unique<TransferState>();
-        xfer->fileMap = mmap;
+        xfer->fd = fd;
+        xfer->buffer.resize(sizeof(wire::ChunkHeader) + len);
         xfer->fileOffset = offset;
-        xfer->xferLen = sizeof(wire::ChunkHeader) + len;
+        xfer->xferLen = xfer->buffer.size() - sizeof(wire::ChunkHeader);
         xfer->payloadLen = len;
 
-        xfer->iovs[0].iov_base = &xfer->header;
-        xfer->iovs[0].iov_len = sizeof(xfer->header);
+        xfer->iov.iov_base = xfer->buffer.data() + sizeof(wire::ChunkHeader);
+        xfer->iov.iov_len = xfer->xferLen;
 
-        xfer->iovs[1].iov_base = xfer->fileMap->uint8Data(offset);
-        xfer->iovs[1].iov_len = len;
-
-        xfer->header = {
+        xfer->header = reinterpret_cast<wire::ChunkHeader *>(xfer->buffer().data());
+        *xfer->header = {
             wire::ChunkHeader::Magic,
             offset,
             len,
@@ -685,6 +666,32 @@ private:
         };
 
         return xfer;
+    }
+
+    std::unique_ptr<TransferState> initWriteXfer(std::unique_ptr<TransferState> xfer)
+    {
+        xfer->fd = selectSocket();
+
+        if (xfer->fd < 0)
+            throw std::runtime_error("xfer: unable to select a socket for network write.");
+
+        xfer->xferLen = xfer->buffer.size();
+
+        xfer->iov.iov_base = xfer->buffer.data();
+        xfer->iov.iov_len = xfer->buffer.size();
+
+        xfer->isWrite = true;
+        xfer->fileOffset = 0;
+
+        return xfer;
+    }
+
+    int readChunk(std::unique_ptr<TransferState> xfer)
+    {
+        if (enqueueFileRead(std::move(xfer)))
+            spdlog::error("enq read: {}", std::strerror(errno));
+
+        return 0;
     }
 
     int writeChunk(std::unique_ptr<TransferState> xfer)
@@ -869,7 +876,7 @@ private:
         return sqe;
     }
 
-    int enqueueNetWrite(std::unique_ptr<TransferState> xfer)
+    int enqueueFileRead(std::unique_ptr<TransferState> xfer)
     {
         if (xfer->fileOffset > std::numeric_limits<off_t>::max())
         {
@@ -885,11 +892,67 @@ private:
             return -EBUSY;
         }
 
+        io_uring_prep_readv(
+            sqe,
+            xfer->fd,
+            &xfer->iov,
+            1,
+            xfer->fileOffset);
+
+        spdlog::debug("enqueue file read: {} {}",
+            xfer->fileOffset, xfer->xferLen);
+
+        io_uring_sqe_set_data(sqe, xfer.release());
+
+        return 0;
+    }
+
+    int enqueueFileReadPrepped(std::unique_ptr<TransferState> xfer)
+    {
+        if (xfer->fileOffset > std::numeric_limits<off_t>::max())
+        {
+            throw std::out_of_range(fmt::format(
+                "transfer file offset: {}", xfer->fileOffset));
+        }
+
+        auto sqe = getSqe();
+
+        if (!sqe)
+        {
+            spdlog::info("unable to fetch sqe.");
+            return -EBUSY;
+        }
+
+        io_uring_prep_readv(
+            sqe,
+            xfer->fd,
+            &xfer->iov,
+            1,
+            xfer->fileOffset);
+
+        spdlog::debug("enqueue file read: {} {}",
+            xfer->fileOffset, xfer->xferLen);
+
+        io_uring_sqe_set_data(sqe, xfer.release());
+
+        return 0;
+    }
+
+    int enqueueNetWrite(std::unique_ptr<TransferState> xfer)
+    {
+        auto sqe = getSqe();
+
+        if (!sqe)
+        {
+            spdlog::info("unable to fetch sqe.");
+            return -EBUSY;
+        }
+
         io_uring_prep_writev(
             sqe,
             xfer->fd,
-            xfer->iovs,
-            2,
+            &xfer->iov,
+            1,
             0);
 
         spdlog::debug("enqueue net write: {} {}",
@@ -914,8 +977,8 @@ private:
         io_uring_prep_writev(
             sqe,
             xfer->fd,
-            xfer->iovs + xfer->iovIndex,
-            2 - xfer->iovIndex,
+            &xfer->iov,
+            1
             0);
 
         spdlog::debug("enqueue prepped net write: {} {}/{}",
@@ -938,26 +1001,24 @@ private:
         }
 
         xfer.xferLen -= len;
+        xfer.fileOffset += len;
 
-        for (size_t i = xfer.iovIndex; i < 2; ++i)
-        {
-            xfer.iovs[i].iov_base = reinterpret_cast<uint8_t *>(xfer.iovs[i].iov_base) + len;
-            xfer.iovs[i].iov_len -= std::min(len, xfer.iovs[i].iov_len);
+        xfer.iov.iov_base = reinterpret_cast<uint8_t *>(xfer.iov.iov_base) + len;
+        xfer.iov.iov_len -= std::min(len, xfer.iov.iov_len);
 
-            if (!xfer.iovs[i].iov_len)
-            {
-                xfer.iovs[i].iov_base = nullptr;
-                xfer.iovIndex = i + 1;
-            }
-        }
+        if (!xfer.iov.iov_len)
+            xfer.iov.iov_base = nullptr;
     }
 
     PollSet poll_{ };
     struct io_uring ring_{ };
+    struct io_uring readRing_{ };
     std::unordered_map<int, FdInfo> fdMap_{ };
     std::unordered_map<int, FdInfo>::iterator fdIter_{ };
     size_t sqeCount_{ };
+    size_t readSqeCount_{ };
     size_t ringDepth_{ };
+    size_t readRingDepth_{ };
     unsigned mtu_{9000};
     bool done_{ };
     bool useUring_{ };
