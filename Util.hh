@@ -674,10 +674,10 @@ private:
 
     struct TransferState
     {
-        wire::ChunkHeader *header{ };
+        wire::ChunkHeader header{ };
 
         AlignedBuffer buffer{ };
-        iovec iov{ };
+        iovec iovs[2]{ };
 
         size_t fileOffset{ };
         size_t xferLen{ };
@@ -745,18 +745,22 @@ private:
     {
         auto xfer = std::make_unique<TransferState>();
         xfer->fd = fd;
-        xfer->buffer = AlignedBuffer{sizeof(wire::ChunkHeader) + len};
+        xfer->buffer = AlignedBuffer{len};
         xfer->fileOffset = offset;
-        xfer->xferLen = xfer->buffer.size() - sizeof(wire::ChunkHeader);
+        xfer->xferLen = len;
         xfer->payloadLen = len;
 
         spdlog::info("aligned buf: {}", xfer->buffer.data());
 
-        xfer->iov.iov_base = xfer->buffer.uint8Data() + sizeof(wire::ChunkHeader);
-        xfer->iov.iov_len = xfer->xferLen;
+        xfer->iovs[0].iov_base = &xfer->header;
+        xfer->iovs[0].iov_len = sizeof(xfer->header);
 
-        xfer->header = reinterpret_cast<wire::ChunkHeader *>(xfer->buffer.uint8Data());
-        *xfer->header = {
+        xfer->iovs[1].iov_base = xfer->buffer.uint8Data();
+        xfer->iovs[1].iov_len = len;
+
+        xfer->iovIndex = 1;
+
+        xfer->header = {
             wire::ChunkHeader::Magic,
             offset,
             len,
@@ -774,10 +778,7 @@ private:
         if (xfer->fd < 0)
             throw std::runtime_error("xfer: unable to select a socket for network write.");
 
-        xfer->xferLen = xfer->buffer.size();
-
-        xfer->iov.iov_base = xfer->buffer.uint8Data();
-        xfer->iov.iov_len = xfer->buffer.size();
+        xfer->xferLen = sizeof(xfer->header) + xfer->buffer.size();
 
         xfer->isWrite = true;
         xfer->fileOffset = 0;
@@ -802,8 +803,8 @@ private:
         {
             auto len = ::writev(
                 xfer->fd,
-                &xfer->iov,
-                1);
+                xfer->iovs + xfer->iovIndex,
+                2 - static_cast<int>(xfer->iovIndex));
 
             if (len < 0)
             {
@@ -900,7 +901,7 @@ private:
                 {
                     spdlog::info("re-queue canceled {} for {} (len: {})."
                         , xfer->isWrite ? "write" : "read"
-                        , xfer->header->fileId
+                        , xfer->header.fileId
                         , xfer->xferLen);
 
                     enqueuePrepped(std::move(xfer));
@@ -910,7 +911,7 @@ private:
                 throw std::system_error(-cqe->res, std::system_category(),
                     fmt::format("cqe failed for offset {} (addr {}): cqe status {}"
                         , xfer->fileOffset
-                        , xfer->iov.iov_base
+                        , xfer->iovs[xfer->iovIndex].iov_base
                         , cqe->res));
             }
 
@@ -919,7 +920,7 @@ private:
             {
                 spdlog::info("re-queue short {} for {}: ({}/{})."
                     , xfer->isWrite ? "write" : "read"
-                    , xfer->header->fileId
+                    , xfer->header.fileId
                     , cqe->res
                     , xfer->xferLen);
 
@@ -978,8 +979,8 @@ private:
         io_uring_prep_readv(
             sqe,
             xfer->fd,
-            &xfer->iov,
-            1,
+            xfer->iovs + xfer->iovIndex,
+            2u - xfer->iovIndex,
             static_cast<off_t>(xfer->fileOffset));
 
         spdlog::debug("enqueue file read: {} {}",
@@ -1009,8 +1010,8 @@ private:
         io_uring_prep_readv(
             sqe,
             xfer->fd,
-            &xfer->iov,
-            1,
+            xfer->iovs + xfer->iovIndex,
+            2 - xfer->iovIndex,
             static_cast<off_t>(xfer->fileOffset));
 
         spdlog::debug("enqueue file read: {} {}",
@@ -1034,8 +1035,8 @@ private:
         io_uring_prep_writev(
             sqe,
             xfer->fd,
-            &xfer->iov,
-            1,
+            xfer->iovs + xfer->iovIndex,
+            2 - xfer->iovIndex,
             0);
 
         spdlog::debug("enqueue prepped net write: {} {}/{}",
@@ -1068,11 +1069,17 @@ private:
         xfer.xferLen -= len;
         xfer.fileOffset += len;
 
-        xfer.iov.iov_base = reinterpret_cast<uint8_t *>(xfer.iov.iov_base) + len;
-        xfer.iov.iov_len -= std::min(len, xfer.iov.iov_len);
+        for (size_t i = xfer.iovIndex; i < 2; ++i)
+        {
+            xfer.iovs[i].iov_base = reinterpret_cast<uint8_t *>(xfer.iovs[i].iov_base) + len;
+            xfer.iovs[i].iov_len -= std::min(len, xfer.iovs[i].iov_len);
 
-        if (!xfer.iov.iov_len)
-            xfer.iov.iov_base = nullptr;
+            if (!xfer.iovs[i].iov_len)
+            {
+                xfer.iovs[i].iov_base = nullptr;
+                xfer.iovIndex = i + 1;
+            }
+        }
     }
 
     PollSet poll_{ };
