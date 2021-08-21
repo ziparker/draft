@@ -55,6 +55,102 @@ namespace draft::util {
 
 using Buffer = std::vector<uint8_t>;
 
+class AlignedBuffer
+{
+public:
+    AlignedBuffer() = default;
+
+    explicit AlignedBuffer(size_t sz)
+    {
+        allocate(sz);
+    }
+
+    AlignedBuffer(AlignedBuffer &&o) noexcept
+    {
+        *this = std::move(o);
+    }
+
+    AlignedBuffer &operator=(AlignedBuffer &&o) noexcept
+    {
+        using std::swap;
+
+        free();
+
+        swap(data_, o.data_);
+        swap(size_, o.size_);
+
+        return *this;
+    }
+
+    AlignedBuffer(const AlignedBuffer &o)
+    {
+        *this = o;
+    }
+
+    AlignedBuffer &operator=(const AlignedBuffer &o)
+    {
+        if (this == &o)
+            return *this;
+
+        free();
+
+        allocate(o.size_);
+
+        std::memcpy(data_, o.data_, o.size_);
+
+        return *this;
+    }
+
+    ~AlignedBuffer() noexcept
+    {
+        free();
+    }
+
+    void free() noexcept
+    {
+        ::free(data_);
+        data_ = nullptr;
+        size_ = 0;
+    }
+
+    void *data(size_t offset = 0) noexcept
+    {
+        return uint8Data(offset);
+    }
+
+    const void *data(size_t offset = 0) const noexcept
+    {
+        return uint8Data(offset);
+    }
+
+    uint8_t *uint8Data(size_t offset = 0) noexcept
+    {
+        return reinterpret_cast<uint8_t*>(data_) + offset;
+    }
+
+    const uint8_t *uint8Data(size_t offset = 0) const noexcept
+    {
+        return reinterpret_cast<const uint8_t*>(data_) + offset;
+    }
+
+    size_t size() const noexcept
+    {
+        return size_;
+    }
+
+private:
+    void allocate(size_t size)
+    {
+        if (posix_memalign(&data_, 4096, size))
+            throw std::system_error(errno, std::system_category(), "posix_memalign");
+
+        size_ = size;
+    }
+
+    void *data_{ };
+    size_t size_{ };
+};
+
 ////////////////////////////////////////////////////////////////////////////////
 // IOVec
 
@@ -520,8 +616,10 @@ public:
                 fmt::format("open '{}'", path));
         }
 
+        spdlog::info("file fd: {}", fd.get());
+
         const auto fileLen = fs::file_size(path);
-        const auto payloadLen = mtuPayload(mtu_);
+        const auto payloadLen = size_t{4096 * 2};//mtuPayload(mtu_);
 
         done_ = false;
 
@@ -552,6 +650,8 @@ public:
 
             if (startCount != sqeCount_)
             {
+                spdlog::debug("submit {}", sqeCount_ - startCount);
+
                 if (io_uring_submit(&ring_) < 0)
                     throw std::system_error(errno, std::system_category(), "io_uring_submit");
             }
@@ -576,7 +676,7 @@ private:
     {
         wire::ChunkHeader *header{ };
 
-        Buffer buffer{ };
+        AlignedBuffer buffer{ };
         iovec iov{ };
 
         size_t fileOffset{ };
@@ -645,15 +745,17 @@ private:
     {
         auto xfer = std::make_unique<TransferState>();
         xfer->fd = fd;
-        xfer->buffer.resize(sizeof(wire::ChunkHeader) + len);
+        xfer->buffer = AlignedBuffer{sizeof(wire::ChunkHeader) + len};
         xfer->fileOffset = offset;
         xfer->xferLen = xfer->buffer.size() - sizeof(wire::ChunkHeader);
         xfer->payloadLen = len;
 
-        xfer->iov.iov_base = xfer->buffer.data() + sizeof(wire::ChunkHeader);
+        spdlog::info("aligned buf: {}", xfer->buffer.data());
+
+        xfer->iov.iov_base = xfer->buffer.uint8Data() + sizeof(wire::ChunkHeader);
         xfer->iov.iov_len = xfer->xferLen;
 
-        xfer->header = reinterpret_cast<wire::ChunkHeader *>(xfer->buffer.data());
+        xfer->header = reinterpret_cast<wire::ChunkHeader *>(xfer->buffer.uint8Data());
         *xfer->header = {
             wire::ChunkHeader::Magic,
             offset,
@@ -674,7 +776,7 @@ private:
 
         xfer->xferLen = xfer->buffer.size();
 
-        xfer->iov.iov_base = xfer->buffer.data();
+        xfer->iov.iov_base = xfer->buffer.uint8Data();
         xfer->iov.iov_len = xfer->buffer.size();
 
         xfer->isWrite = true;
