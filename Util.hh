@@ -656,7 +656,7 @@ private:
         xfer->iov.iov_base = xfer->buffer.data() + sizeof(wire::ChunkHeader);
         xfer->iov.iov_len = xfer->xferLen;
 
-        xfer->header = reinterpret_cast<wire::ChunkHeader *>(xfer->buffer().data());
+        xfer->header = reinterpret_cast<wire::ChunkHeader *>(xfer->buffer.data());
         *xfer->header = {
             wire::ChunkHeader::Magic,
             offset,
@@ -703,8 +703,8 @@ private:
         {
             auto len = ::writev(
                 xfer->fd,
-                xfer->iovs + xfer->iovIndex,
-                2 - static_cast<int>(xfer->iovIndex));
+                &xfer->iov,
+                1);
 
             if (len < 0)
             {
@@ -811,7 +811,7 @@ private:
                 throw std::system_error(-cqe->res, std::system_category(),
                     fmt::format("cqe failed for offset {} (addr {}): cqe status {}"
                         , xfer->fileOffset
-                        , xfer->iovs[1].iov_base
+                        , xfer->iov.iov_base
                         , cqe->res));
             }
 
@@ -840,7 +840,7 @@ private:
             // otherwise, we're done.
             if (!xfer->isWrite)
             {
-                xfer = initWrite(std::move(xfer));
+                xfer = initWriteXfer(std::move(xfer));
 
                 enqueuePrepped(std::move(xfer));
                 continue;
@@ -881,7 +881,7 @@ private:
             xfer->fd,
             &xfer->iov,
             1,
-            xfer->fileOffset);
+            static_cast<off_t>(xfer->fileOffset));
 
         spdlog::debug("enqueue file read: {} {}",
             xfer->fileOffset, xfer->xferLen);
@@ -912,7 +912,7 @@ private:
             xfer->fd,
             &xfer->iov,
             1,
-            xfer->fileOffset);
+            static_cast<off_t>(xfer->fileOffset));
 
         spdlog::debug("enqueue file read: {} {}",
             xfer->fileOffset, xfer->xferLen);
@@ -936,7 +936,7 @@ private:
             sqe,
             xfer->fd,
             &xfer->iov,
-            1
+            1,
             0);
 
         spdlog::debug("enqueue prepped net write: {} {}/{}",
