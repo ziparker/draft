@@ -513,8 +513,14 @@ public:
         namespace fs = std::filesystem;
 
         auto fd = ScopedFd{::open(path.c_str(), O_RDONLY | O_DIRECT)};
-        const auto fileLen = fs::file_size(path);
 
+        if (fd.get() < 0)
+        {
+            throw std::system_error(errno, std::system_category(),
+                fmt::format("open '{}'", path));
+        }
+
+        const auto fileLen = fs::file_size(path);
         const auto payloadLen = mtuPayload(mtu_);
 
         done_ = false;
@@ -531,15 +537,6 @@ public:
                 const auto xferPayloadLen = std::min(fileLen - fileOffset, payloadLen);
 
                 auto xfer = initReadXfer(fd.get(), fileOffset, xferPayloadLen, fileId);
-
-                #if 0
-                xfer->fd = selectSocket();
-                if (xfer->fd < 0)
-                {
-                    spdlog::error("no descriptors are selectable for writing - waiting.");
-                    continue;
-                }
-                #endif
 
                 spdlog::trace("offset: {} {} {} {}"
                     , fileOffset, xferPayloadLen, fileLen, sqeCount_);

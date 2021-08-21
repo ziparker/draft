@@ -79,12 +79,12 @@ int main(int argc, char **argv)
 {
     spdlog::cfg::load_env_levels();
 
-    try {
+    //try {
         dispatchSubcommand(argc, argv);
-    } catch (const std::exception &ex) {
-        spdlog::error("exception: {}", ex.what());
-        return 1;
-    }
+    //} catch (const std::exception &ex) {
+    //    spdlog::error("exception: {}", ex.what());
+    //    return 1;
+    //}
 
     return 0;
 }
