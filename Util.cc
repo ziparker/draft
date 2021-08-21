@@ -296,6 +296,9 @@ void FileAgent::initFileState(FileAgentConfig conf)
 
     for (auto &info : infos)
     {
+        if (S_ISDIR(info.status.mode))
+            continue;
+
         auto state = FileState{ };
 
         // we expect files to have been created & allocated elsewhere.

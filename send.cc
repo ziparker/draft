@@ -177,8 +177,14 @@ int send(int argc, char **argv)
     conf.mtu = opts.mtu;
 
     auto agent = util::MmapAgent{std::move(conf)};
+
     for (const auto &info : fileInfo)
+    {
+        if (S_ISDIR(info.status.mode))
+            continue;
+
         agent.transferFile(info.path, info.id);
+    }
 
     return 0;
 }
