@@ -83,6 +83,7 @@ public:
         return *this;
     }
 
+    #if 0
     AlignedBuffer(const AlignedBuffer &o)
     {
         *this = o;
@@ -101,6 +102,7 @@ public:
 
         return *this;
     }
+    #endif
 
     ~AlignedBuffer() noexcept
     {
@@ -150,6 +152,74 @@ private:
 
     void *data_{ };
     size_t size_{ };
+};
+
+class BufferPool: public std::enable_shared_from_this<BufferPool>
+{
+public:
+    struct Item
+    {
+        Item() = default;
+
+        Item(const std::shared_ptr<BufferPool> &pool, AlignedBuffer buf):
+            pool(pool),
+            buf(std::move(buf))
+        {
+        }
+
+        Item(Item &&o) = default;
+        Item &operator=(Item &&o) = default;
+
+        ~Item() noexcept
+        {
+            try {
+                spdlog::info("dtor put {}", (void *)pool.get());
+                if (pool)
+                    pool->put(std::move(buf));
+            } catch (...) {
+            }
+        }
+
+        std::shared_ptr<BufferPool> pool{ };
+        AlignedBuffer buf{ };
+    };
+
+    static std::shared_ptr<BufferPool> create()
+    {
+        return std::shared_ptr<BufferPool>(new BufferPool);
+    }
+
+    Item get(size_t sz)
+    {
+        AlignedBuffer buf{ };
+
+        if (!bufs_.empty())
+        {
+            buf = std::move(bufs_.back());
+            bufs_.pop_back();
+        }
+
+        if (!buf.data() || buf.size() < sz)
+        {
+            spdlog::info("alloc {}", sz);
+            buf = AlignedBuffer{sz};
+        }
+
+        return {
+            shared_from_this(),
+            std::move(buf)
+        };
+    }
+
+    void put(AlignedBuffer item)
+    {
+        bufs_.push_back(std::move(item));
+    }
+
+private:
+    BufferPool() = default;
+
+    std::vector<AlignedBuffer> bufs_;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -596,6 +666,7 @@ public:
     explicit MmapAgent(AgentConfig conf):
         mtu_(conf.mtu)
     {
+        pool_ = BufferPool::create();
         initUring(12);
         initNetwork(conf);
     }
@@ -677,7 +748,7 @@ private:
     {
         wire::ChunkHeader header{ };
 
-        AlignedBuffer buffer{ };
+        BufferPool::Item buffer{ };
         iovec iovs[2]{ };
 
         size_t fileOffset{ };
@@ -746,7 +817,7 @@ private:
     {
         auto xfer = std::make_unique<TransferState>();
         xfer->fd = fd;
-        xfer->buffer = AlignedBuffer{len};
+        xfer->buffer = pool_->get(len);
         xfer->fileOffset = offset;
         xfer->xferLen = len;
         xfer->payloadLen = len;
@@ -754,7 +825,7 @@ private:
         xfer->iovs[0].iov_base = &xfer->header;
         xfer->iovs[0].iov_len = sizeof(xfer->header);
 
-        xfer->iovs[1].iov_base = xfer->buffer.data();
+        xfer->iovs[1].iov_base = xfer->buffer.buf.data();
         xfer->iovs[1].iov_len = len;
 
         xfer->iovIndex = 1;
@@ -1094,6 +1165,7 @@ private:
 
     PollSet poll_{ };
     struct io_uring ring_{ };
+    std::shared_ptr<BufferPool> pool_{ };
     std::unordered_map<int, FdInfo> fdMap_{ };
     std::unordered_map<int, FdInfo>::iterator fdIter_{ };
     size_t sqeCount_{ };
