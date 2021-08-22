@@ -45,6 +45,7 @@
 
 #include <liburing.h>
 #include <spdlog/spdlog.h>
+#include <spdlog/fmt/bin_to_hex.h>
 
 #include "Protocol.hh"
 
@@ -776,11 +777,10 @@ private:
         if (xfer->fd < 0)
             throw std::runtime_error("xfer: unable to select a socket for network write.");
 
-        xfer->xferLen = sizeof(xfer->header) + xfer->buffer.size();
+        xfer->xferLen = sizeof(xfer->header) + xfer->payloadLen;
 
         xfer->isWrite = true;
         xfer->iovIndex = 0;
-        xfer->fileOffset = 0;
 
         return xfer;
     }
@@ -941,8 +941,15 @@ private:
             {
                 xfer = initWriteXfer(std::move(xfer));
 
-                enqueuePrepped(std::move(xfer));
-                continue;
+                if (false)
+                {
+                    enqueuePrepped(std::move(xfer));
+                    continue;
+                }
+                else
+                {
+                    syncWrite(std::move(xfer));
+                }
             }
 
             --sqeCount_;
@@ -1030,6 +1037,10 @@ private:
             spdlog::info("unable to fetch sqe.");
             return -EBUSY;
         }
+
+        auto p = reinterpret_cast<const uint8_t *>(xfer->iovs[1].iov_base);
+        spdlog::info("net write: {}"
+            , spdlog::to_hex(p, p + + xfer->iovs[1].iov_len));
 
         io_uring_prep_writev(
             sqe,

@@ -167,7 +167,7 @@ private:
                 , reinterpret_cast<uintptr_t>(view.data) - reinterpret_cast<uintptr_t>(buf_.data())
                 , reinterpret_cast<uintptr_t>(view.data) - reinterpret_cast<uintptr_t>(buf_.data()));
 
-            #if 0
+            #if 1
             *view.data = 0xff;
             spdlog::warn(" -> buf data: {}", spdlog::to_hex(begin(buf_), end(buf_)));
 
