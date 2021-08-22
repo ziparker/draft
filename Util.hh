@@ -30,6 +30,7 @@
 #include <cstring>
 #include <filesystem>
 #include <memory>
+#include <numeric>
 #include <stdexcept>
 #include <string>
 #include <system_error>
@@ -678,9 +679,11 @@ public:
     explicit MmapAgent(AgentConfig conf):
         mtu_(conf.mtu)
     {
-        pool_ = BufferPool::create();
         initUring(6);
         initNetwork(conf);
+
+        std::iota(begin(freeList_), end(freeList_), 1u);
+        freeList_.shrink_to_fit();
     }
 
     void cancel()
@@ -717,7 +720,6 @@ public:
 
         size_t chunkCount{ };
         size_t chunkXfer{ };
-        size_t bufIdx{ };
 
         for (size_t fileOffset = 0; !done_ && fileOffset < fileLen; )
         {
@@ -727,12 +729,12 @@ public:
             {
                 const auto xferPayloadLen = std::min(fileLen - fileOffset, payloadLen);
 
+                auto bufIdx = free_;
+                free_ = freeList_[free_];
+
                 auto buf = RawBuffer{map.uint8Data(bufIdx * mtu_), mtu_};
                 auto xfer = initReadXfer(buf, fd.get(), fileOffset, xferPayloadLen, fileId);
-
-                ++bufIdx;
-                if (bufIdx == 64)
-                    bufIdx = 0;
+                xfer->freeIdx = bufIdx;
 
                 spdlog::trace("offset: {} {} {} {}"
                     , fileOffset, xferPayloadLen, fileLen, sqeCount_);
@@ -780,6 +782,7 @@ private:
         size_t fileOffset{ };
         size_t xferLen{ };
         size_t payloadLen{ };
+        size_t freeIdx{ };
         unsigned iovIndex{ };
         int fd{-1};
         bool isWrite{ };
@@ -1049,6 +1052,9 @@ private:
                 }
             }
 
+            freeList_[xfer->freeIdx] = free_;
+            free_ = xfer->freeIdx;
+
             --sqeCount_;
         }
     }
@@ -1191,7 +1197,8 @@ private:
 
     PollSet poll_{ };
     struct io_uring ring_{ };
-    std::shared_ptr<BufferPool> pool_{ };
+    std::vector<size_t> freeList_{ };
+    size_t free_{ };
     std::unordered_map<int, FdInfo> fdMap_{ };
     std::unordered_map<int, FdInfo>::iterator fdIter_{ };
     size_t sqeCount_{ };
