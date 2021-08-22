@@ -682,8 +682,9 @@ public:
         initUring(6);
         initNetwork(conf);
 
+        freeList_.resize(1u << 6);
         std::iota(begin(freeList_), end(freeList_), 1u);
-        freeList_.shrink_to_fit();
+        freeList_.back() = ~size_t{0};
     }
 
     void cancel()
@@ -1051,9 +1052,12 @@ private:
                     syncWrite(std::move(xfer));
                 }
             }
-
-            freeList_[xfer->freeIdx] = free_;
-            free_ = xfer->freeIdx;
+            else
+            {
+                if (xfer->freeIdx != ~size_t{0u})
+                    freeList_[xfer->freeIdx] = free_;
+                free_ = xfer->freeIdx;
+            }
 
             --sqeCount_;
         }
