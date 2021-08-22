@@ -517,8 +517,16 @@ public:
 
         const auto payloadLen = mtuPayload(mtu_);
 
+        // TODO: - map_populate option for smallish files, huge page usage?
         auto mmap = std::make_shared<ScopedMMap>(
-            ScopedMMap::map(nullptr, fileLen, PROT_READ, MAP_PRIVATE | MAP_POPULATE, fd.get(), 0));
+            ScopedMMap::map(nullptr, fileLen, PROT_READ, MAP_PRIVATE, fd.get(), 0));
+
+        if (madvise(mmap->data(), fileLen, MADV_SEQUENTIAL))
+        {
+            spdlog::warn("transferFile: unable to madvise on mapped file '{}': {}"
+                , path
+                , std::strerror(errno));
+        }
 
         spdlog::info("file len: {} ({} - {})"
             , fileLen
