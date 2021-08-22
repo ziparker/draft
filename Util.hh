@@ -620,7 +620,7 @@ public:
         spdlog::info("file fd: {}", fd.get());
 
         const auto fileLen = fs::file_size(path);
-        const auto payloadLen = size_t{4096 * 2};//mtuPayload(mtu_);
+        const auto payloadLen = mtu_;//mtuPayload(mtu_);
 
         done_ = false;
 
@@ -1098,9 +1098,9 @@ private:
     std::unordered_map<int, FdInfo>::iterator fdIter_{ };
     size_t sqeCount_{ };
     size_t ringDepth_{ };
-    unsigned mtu_{9000};
+    size_t mtu_{9000};
     bool done_{ };
-    bool useUring_{true};
+    bool useUring_{ };
 };
 
 ////////////////////////////////////////////////////////////////////////////////
