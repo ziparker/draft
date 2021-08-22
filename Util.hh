@@ -56,6 +56,17 @@ namespace draft::util {
 
 using Buffer = std::vector<uint8_t>;
 
+struct RawBuffer
+{
+    void *data() noexcept { return data_; }
+    const void *data() const noexcept { return data_; }
+    uint8_t *uint8Data() noexcept { return reinterpret_cast<uint8_t *>(data_); }
+    const uint8_t *uint8Data() const noexcept { return reinterpret_cast<uint8_t *>(data_); }
+
+    uint8_t *data_{ };
+    size_t size_{ };
+};
+
 class AlignedBuffer
 {
 public:
@@ -111,7 +122,8 @@ public:
 
     void free() noexcept
     {
-        ::free(data_);
+        if (data_)
+            ::free(data_);
         data_ = nullptr;
         size_ = 0;
     }
@@ -667,7 +679,7 @@ public:
         mtu_(conf.mtu)
     {
         pool_ = BufferPool::create();
-        initUring(12);
+        initUring(6);
         initNetwork(conf);
     }
 
@@ -690,6 +702,14 @@ public:
 
         spdlog::info("file fd: {}", fd.get());
 
+        auto map = ScopedMMap::map(
+            nullptr,
+            mtu_ * 64,
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE,
+            -1,
+            0);
+
         const auto fileLen = fs::file_size(path);
         const auto payloadLen = mtu_;//mtuPayload(mtu_);
 
@@ -697,6 +717,7 @@ public:
 
         size_t chunkCount{ };
         size_t chunkXfer{ };
+        size_t bufIdx{ };
 
         for (size_t fileOffset = 0; !done_ && fileOffset < fileLen; )
         {
@@ -706,7 +727,12 @@ public:
             {
                 const auto xferPayloadLen = std::min(fileLen - fileOffset, payloadLen);
 
-                auto xfer = initReadXfer(fd.get(), fileOffset, xferPayloadLen, fileId);
+                auto buf = RawBuffer{map.uint8Data(bufIdx * mtu_), mtu_};
+                auto xfer = initReadXfer(buf, fd.get(), fileOffset, xferPayloadLen, fileId);
+
+                ++bufIdx;
+                if (bufIdx == 64)
+                    bufIdx = 0;
 
                 spdlog::trace("offset: {} {} {} {}"
                     , fileOffset, xferPayloadLen, fileLen, sqeCount_);
@@ -748,7 +774,7 @@ private:
     {
         wire::ChunkHeader header{ };
 
-        BufferPool::Item buffer{ };
+        RawBuffer buffer{ };
         iovec iovs[2]{ };
 
         size_t fileOffset{ };
@@ -813,11 +839,11 @@ private:
         return ScopedFd{::open(path.c_str(), O_RDONLY)};
     }
 
-    std::unique_ptr<TransferState> initReadXfer(int fd, size_t offset, size_t len, uint16_t fileId)
+    std::unique_ptr<TransferState> initReadXfer(RawBuffer buf, int fd, size_t offset, size_t len, uint16_t fileId)
     {
         auto xfer = std::make_unique<TransferState>();
         xfer->fd = fd;
-        xfer->buffer = pool_->get(len);
+        xfer->buffer = buf;
         xfer->fileOffset = offset;
         xfer->xferLen = len;
         xfer->payloadLen = len;
@@ -825,7 +851,7 @@ private:
         xfer->iovs[0].iov_base = &xfer->header;
         xfer->iovs[0].iov_len = sizeof(xfer->header);
 
-        xfer->iovs[1].iov_base = xfer->buffer.buf.data();
+        xfer->iovs[1].iov_base = xfer->buffer.data();
         xfer->iovs[1].iov_len = len;
 
         xfer->iovIndex = 1;
