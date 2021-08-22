@@ -941,7 +941,7 @@ private:
             {
                 xfer = initWriteXfer(std::move(xfer));
 
-                if (false)
+                if (useUring_)
                 {
                     enqueuePrepped(std::move(xfer));
                     continue;
