@@ -1038,6 +1038,8 @@ private:
             //
             // if it is a file read, turn it into a net write and submit,
             // otherwise, we're done.
+            const auto isWrite = xfer->isWrite;
+            const auto freeIdx = xfer->freeIdx;
             if (!xfer->isWrite)
             {
                 xfer = initWriteXfer(std::move(xfer));
@@ -1047,16 +1049,15 @@ private:
                     enqueuePrepped(std::move(xfer));
                     continue;
                 }
-                else
-                {
-                    syncWrite(std::move(xfer));
-                }
+
+                syncWrite(std::move(xfer));
             }
-            else
+
+            if (isWrite || !useUring_)
             {
-                if (xfer->freeIdx != ~size_t{0u})
-                    freeList_[xfer->freeIdx] = free_;
-                free_ = xfer->freeIdx;
+                if (freeIdx != ~size_t{0u})
+                    freeList_[freeIdx] = free_;
+                free_ = freeIdx;
             }
 
             --sqeCount_;
