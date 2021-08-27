@@ -55,7 +55,109 @@ namespace draft::util {
 ////////////////////////////////////////////////////////////////////////////////
 // Buffer
 
-using Buffer = std::vector<uint8_t>;
+class Buffer
+{
+public:
+    Buffer() = default;
+
+    explicit Buffer(size_t size):
+        data_(std::malloc(size)),
+        size_(size)
+    {
+        if (!data_)
+            throw std::bad_alloc();
+    }
+
+    Buffer(const std::vector<uint8_t> &vec):
+        Buffer(vec.data(), vec.size())
+    {
+    }
+
+    explicit Buffer(const void *data, size_t size):
+        data_(std::malloc(size)),
+        size_(size)
+    {
+        if (!data_)
+            throw std::bad_alloc();
+
+        std::memcpy(data_, data, size_);
+    }
+
+    Buffer(const Buffer &o)
+    {
+        *this = o;
+    }
+
+    Buffer &operator=(const Buffer &o)
+    {
+        if (this == &o)
+            return *this;
+
+        resize(o.size_);
+
+        std::memcpy(data_, o.data_, size_);
+
+        return *this;
+    }
+
+    Buffer(Buffer &&o)
+    {
+        *this = o;
+    }
+
+    Buffer &operator=(Buffer &&o)
+    {
+        if (this == &o)
+            return *this;
+
+        std::free(data_);
+
+        data_ = o.data_;
+        size_ = o.size_;
+        o.data_ = nullptr;
+        o.size_ = 0u;
+
+        return *this;
+    }
+
+    ~Buffer()
+    {
+        std::free(data_);
+        data_ = nullptr;
+        size_ = 0;
+    }
+
+    void resize(size_t size)
+    {
+        auto p = std::realloc(data_, size);
+
+        if (!p)
+        {
+            std::free(data_);
+            size_ = 0;
+            throw std::runtime_error("Buffer: realloc failed");
+        }
+
+        data_ = p;
+        size_ = size;
+    }
+
+    std::vector<uint8_t> vector() const
+    {
+        return {uint8Data(), uint8Data() + size_};
+    }
+
+    void *data() noexcept { return data_; }
+    const void *data() const noexcept { return data_; }
+    uint8_t *uint8Data() noexcept { return reinterpret_cast<uint8_t *>(data_); }
+    const uint8_t *uint8Data() const noexcept { return reinterpret_cast<uint8_t *>(data_); }
+
+    size_t size() const noexcept { return size_; }
+
+private:
+    void *data_{ };
+    size_t size_{ };
+};
 
 struct RawBuffer
 {
@@ -928,8 +1030,6 @@ private:
                 stat = -EOF;
                 break;
             }
-
-            spdlog::info("wrote {}", len);
 
             wlen += static_cast<size_t>(len);
 
