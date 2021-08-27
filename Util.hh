@@ -704,7 +704,7 @@ public:
                 fmt::format("open '{}'", path));
         }
 
-        spdlog::info("file fd: {}", fd.get());
+        spdlog::info("file {} fd: {}", path, fd.get());
 
         auto map = ScopedMMap::map(
             nullptr,
@@ -845,12 +845,18 @@ private:
 
     std::unique_ptr<TransferState> initReadXfer(RawBuffer buf, int fd, size_t offset, size_t len, uint16_t fileId)
     {
+        static constexpr auto roundBlockSize = [](size_t len) {
+                return (len + 511u) & ~size_t{511u};
+            };
+
         auto xfer = std::make_unique<TransferState>();
         xfer->fd = fd;
         xfer->buffer = buf;
         xfer->fileOffset = offset;
         xfer->xferLen = len;
         xfer->payloadLen = len;
+
+        len = roundBlockSize(len);
 
         xfer->iovs[0].iov_base = &xfer->header;
         xfer->iovs[0].iov_len = sizeof(xfer->header);
@@ -1009,9 +1015,10 @@ private:
                 }
 
                 throw std::system_error(-cqe->res, std::system_category(),
-                    fmt::format("cqe failed for offset {} (addr {}): cqe status {}"
+                    fmt::format("cqe failed for offset {} (addr {}, len {}): cqe status {}"
                         , xfer->fileOffset
                         , xfer->iovs[xfer->iovIndex].iov_base
+                        , xfer->xferLen
                         , cqe->res));
             }
 
@@ -1449,9 +1456,10 @@ private:
                 }
 
                 throw std::system_error(-cqe->res, std::system_category(),
-                    fmt::format("cqe failed for offset {} (addr {})"
+                    fmt::format("cqe failed for offset {} (addr {}, len {})"
                         , xfer->fileOffset
-                        , xfer->iov.iov_base));
+                        , xfer->iov.iov_base
+                        , xfer->len));
             }
 
             if (cqe->res > 0 &&
