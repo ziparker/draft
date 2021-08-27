@@ -661,6 +661,11 @@ constexpr size_t mtuPayload(unsigned mtu) noexcept
     return mtu - 48 - sizeof(wire::ChunkHeader);
 }
 
+constexpr size_t roundBlockSize(size_t len) noexcept
+{
+    return (len + 511u) & ~size_t{511u};
+};
+
 struct NetworkTarget
 {
     std::string ip{ };
@@ -708,7 +713,7 @@ public:
 
         auto map = ScopedMMap::map(
             nullptr,
-            mtu_ * 64,
+            roundBlockSize(mtu_ * 64),
             PROT_READ | PROT_WRITE,
             MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE,
             -1,
@@ -845,10 +850,6 @@ private:
 
     std::unique_ptr<TransferState> initReadXfer(RawBuffer buf, int fd, size_t offset, size_t len, uint16_t fileId)
     {
-        static constexpr auto roundBlockSize = [](size_t len) {
-                return (len + 511u) & ~size_t{511u};
-            };
-
         auto xfer = std::make_unique<TransferState>();
         xfer->fd = fd;
         xfer->buffer = buf;
@@ -856,13 +857,11 @@ private:
         xfer->xferLen = len;
         xfer->payloadLen = len;
 
-        len = roundBlockSize(len);
-
         xfer->iovs[0].iov_base = &xfer->header;
         xfer->iovs[0].iov_len = sizeof(xfer->header);
 
         xfer->iovs[1].iov_base = xfer->buffer.data();
-        xfer->iovs[1].iov_len = len;
+        xfer->iovs[1].iov_len = roundBlockSize(len);
 
         xfer->iovIndex = 1;
 
@@ -905,6 +904,10 @@ private:
         int stat{ };
         const auto xferLen = xfer->xferLen;
 
+        // adjust the payload length in the payload iov, in case our block size
+        // rounding artificially incrased the size of the buffer.
+        xfer->iovs[1].iov_len = xfer->payloadLen;
+
         for (size_t wlen = 0; wlen < xferLen; )
         {
             auto len = ::writev(
@@ -925,6 +928,8 @@ private:
                 stat = -EOF;
                 break;
             }
+
+            spdlog::info("wrote {}", len);
 
             wlen += static_cast<size_t>(len);
 
