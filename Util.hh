@@ -313,6 +313,35 @@ public:
     public:
         Buffer() = default;
 
+        Buffer(const Buffer &) = delete;
+        Buffer &operator=(const Buffer &) = delete;
+
+        Buffer(Buffer &&o) noexcept
+        {
+            *this = std::move(o);
+        }
+
+        Buffer &operator=(Buffer &&o) noexcept
+        {
+            if (pool_)
+                pool_->put(*this);
+
+            data_ = o.data_;
+            size_ = o.size_;
+            freeIdx_ = o.freeIdx_;
+            pool_ = o.pool_;
+
+            o = { };
+
+            return *this;
+        }
+
+        ~Buffer() noexcept
+        {
+            if (pool_)
+                pool_->put(*this);
+        }
+
         void *data() noexcept { return data_; };
         const void *data() const noexcept { return data_; };
 
@@ -326,16 +355,18 @@ public:
     private:
         friend class BufferPool;
 
-        Buffer(size_t index, void *data, size_t size):
+        Buffer(BufferPool &pool, size_t index, void *data, size_t size):
             data_(data),
             size_(size),
-            freeIdx_(index)
+            freeIdx_(index),
+            pool_(&pool)
         {
         }
 
         void *data_{ };
         size_t size_{ };
         size_t freeIdx_{ };
+        BufferPool *pool_{ };
     };
 
     BufferPool() = default;
@@ -354,7 +385,8 @@ public:
         return {
             idx,
             mmap_.uint8Data(idx * chunkSize_),
-            chunkSize_
+            chunkSize_,
+            *this
         };
     }
 
@@ -782,7 +814,7 @@ public:
                 const auto xferPayloadLen = std::min(fileLen - fileOffset, payloadLen);
 
                 auto buf = pool_.get();
-                auto xfer = initReadXfer(buf, fd.get(), fileOffset, xferPayloadLen, fileId);
+                auto xfer = initReadXfer(std::move(buf), fd.get(), fileOffset, xferPayloadLen, fileId);
 
                 spdlog::trace("offset: {} {} {} {}"
                     , fileOffset, xferPayloadLen, fileLen, sqeCount_);
@@ -893,7 +925,7 @@ private:
     {
         auto xfer = std::make_unique<TransferState>();
         xfer->fd = fd;
-        xfer->buffer = buf;
+        xfer->buffer = std::move(buf);
         xfer->fileOffset = offset;
         xfer->xferLen = len;
         xfer->payloadLen = len;
@@ -1090,7 +1122,6 @@ private:
             // if it is a file read, turn it into a net write and submit,
             // otherwise, we're done.
             const auto isWrite = xfer->isWrite;
-            const auto buf = xfer->buffer;
             if (!xfer->isWrite)
             {
                 xfer = initWriteXfer(std::move(xfer));
@@ -1103,9 +1134,6 @@ private:
 
                 syncWrite(std::move(xfer));
             }
-
-            if (isWrite || !useUring_)
-                pool_.put(buf);
 
             --sqeCount_;
         }

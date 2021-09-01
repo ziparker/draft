@@ -49,12 +49,12 @@ public:
         cb_(std::move(cb)),
         fd_(std::move(fd))
     {
-        buf_.resize(rxBufSize);
+        pool_ = BufferPool{rxBufSize, 1u << 12};
     }
 
     int runOnce()
     {
-        auto len = ::recv(fd_.get(), buf_.data() + offset_, buf_.size() - offset_, 0);
+        auto len = ::recv(fd_.get(), buf_.uint8Data() + offset_, buf_.size() - offset_, 0);
 
         if (len < 0)
         {
@@ -91,7 +91,11 @@ private:
 
         if (!found)
         {
-            std::memmove(buf_.data(), view.data + offset, view.size - offset);
+            auto buf = pool_.get();
+
+            std::memcpy(buf.data(), view.data + offset, view.size - offset);
+            buf_ = buf;
+
             offset_ = view.size - offset;
             spdlog::warn("no header found, offset set to {}", offset_);
             return;
@@ -200,8 +204,9 @@ private:
     }
 
     ChunkCallback cb_;
+    BufferPool pool_;
+    BufferPool::Buffer buf_;
     ScopedFd fd_;
-    std::vector<uint8_t> buf_;
     size_t offset_{ };
 };
 
