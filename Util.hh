@@ -311,6 +311,8 @@ public:
     struct Buffer
     {
     public:
+        Buffer() = default;
+
         void *data() noexcept { return data_; };
         const void *data() const noexcept { return data_; };
 
@@ -372,7 +374,7 @@ private:
             -1,
             0);
 
-        
+        freeList_ = FreeList{chunkCount_};
     }
 
     FreeList freeList_{ };
@@ -741,7 +743,7 @@ public:
         initUring(6);
         initNetwork(conf);
 
-        freeList_ = FreeList{1u << 6};
+        pool_ = BufferPool{mtu_, 64};
     }
 
     void cancel()
@@ -763,14 +765,6 @@ public:
 
         spdlog::info("file {} fd: {}", path, fd.get());
 
-        auto map = ScopedMMap::map(
-            nullptr,
-            roundBlockSize(mtu_ * 64),
-            PROT_READ | PROT_WRITE,
-            MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE,
-            -1,
-            0);
-
         const auto fileLen = fs::file_size(path);
         const auto payloadLen = mtu_;//mtuPayload(mtu_);
 
@@ -787,11 +781,8 @@ public:
             {
                 const auto xferPayloadLen = std::min(fileLen - fileOffset, payloadLen);
 
-                auto bufIdx = freeList_.get();
-
-                auto buf = RawBuffer{map.uint8Data(bufIdx * mtu_), mtu_};
+                auto buf = pool_.get();
                 auto xfer = initReadXfer(buf, fd.get(), fileOffset, xferPayloadLen, fileId);
-                xfer->freeIdx = bufIdx;
 
                 spdlog::trace("offset: {} {} {} {}"
                     , fileOffset, xferPayloadLen, fileLen, sqeCount_);
@@ -833,13 +824,12 @@ private:
     {
         wire::ChunkHeader header{ };
 
-        RawBuffer buffer{ };
+        BufferPool::Buffer buffer{ };
         iovec iovs[2]{ };
 
         size_t fileOffset{ };
         size_t xferLen{ };
         size_t payloadLen{ };
-        size_t freeIdx{ };
         unsigned iovIndex{ };
         int fd{-1};
         bool isWrite{ };
@@ -899,7 +889,7 @@ private:
         return ScopedFd{::open(path.c_str(), O_RDONLY)};
     }
 
-    std::unique_ptr<TransferState> initReadXfer(RawBuffer buf, int fd, size_t offset, size_t len, uint16_t fileId)
+    std::unique_ptr<TransferState> initReadXfer(BufferPool::Buffer buf, int fd, size_t offset, size_t len, uint16_t fileId)
     {
         auto xfer = std::make_unique<TransferState>();
         xfer->fd = fd;
@@ -1100,7 +1090,7 @@ private:
             // if it is a file read, turn it into a net write and submit,
             // otherwise, we're done.
             const auto isWrite = xfer->isWrite;
-            const auto freeIdx = xfer->freeIdx;
+            const auto buf = xfer->buffer;
             if (!xfer->isWrite)
             {
                 xfer = initWriteXfer(std::move(xfer));
@@ -1115,7 +1105,7 @@ private:
             }
 
             if (isWrite || !useUring_)
-                freeList_.put(freeIdx);
+                pool_.put(buf);
 
             --sqeCount_;
         }
@@ -1259,7 +1249,7 @@ private:
 
     PollSet poll_{ };
     struct io_uring ring_{ };
-    FreeList freeList_{ };
+    BufferPool pool_{ };
     std::unordered_map<int, FdInfo> fdMap_{ };
     std::unordered_map<int, FdInfo>::iterator fdIter_{ };
     size_t sqeCount_{ };
