@@ -52,6 +52,11 @@
 
 namespace draft::util {
 
+constexpr size_t roundBlockSize(size_t len) noexcept
+{
+    return (len + 511u) & ~size_t{511u};
+};
+
 ////////////////////////////////////////////////////////////////////////////////
 // Buffer
 
@@ -170,171 +175,210 @@ struct RawBuffer
     size_t size_{ };
 };
 
-class AlignedBuffer
+////////////////////////////////////////////////////////////////////////////////
+// ScopedMMap
+
+class ScopedMMap
 {
 public:
-    AlignedBuffer() = default;
-
-    explicit AlignedBuffer(size_t sz)
+    static ScopedMMap map(void *addr, size_t len, int prot, int flags, int fildes, off_t off)
     {
-        allocate(sz);
+        auto p = ::mmap(addr, len, prot, flags, fildes, off);
+
+        if (p == MAP_FAILED)
+            throw std::system_error(errno, std::system_category(), "draft::ScopedMMap");
+
+        return {p, len};
     }
 
-    AlignedBuffer(AlignedBuffer &&o) noexcept
+    ScopedMMap() = default;
+
+    ~ScopedMMap() noexcept
+    {
+        unmap();
+    }
+
+    ScopedMMap(const ScopedMMap &) = delete;
+    ScopedMMap &operator=(const ScopedMMap &) = delete;
+
+    ScopedMMap(ScopedMMap &&o) noexcept
     {
         *this = std::move(o);
     }
 
-    AlignedBuffer &operator=(AlignedBuffer &&o) noexcept
+    ScopedMMap &operator=(ScopedMMap &&o) noexcept
     {
         using std::swap;
 
-        free();
+        unmap();
 
-        swap(data_, o.data_);
-        swap(size_, o.size_);
-
-        return *this;
-    }
-
-    #if 0
-    AlignedBuffer(const AlignedBuffer &o)
-    {
-        *this = o;
-    }
-
-    AlignedBuffer &operator=(const AlignedBuffer &o)
-    {
-        if (this == &o)
-            return *this;
-
-        free();
-
-        allocate(o.size_);
-
-        std::memcpy(data_, o.data_, o.size_);
+        swap(o.addr_, addr_);
+        swap(o.len_, len_);
 
         return *this;
     }
-    #endif
 
-    ~AlignedBuffer() noexcept
+    int unmap() noexcept
     {
-        free();
+        auto stat = 0;
+
+        if (addr_)
+            stat = ::munmap(addr_, len_);
+
+        addr_ = nullptr;
+        len_ = 0;
+
+        return stat;
     }
 
-    void free() noexcept
-    {
-        if (data_)
-            ::free(data_);
-        data_ = nullptr;
-        size_ = 0;
-    }
-
-    void *data(size_t offset = 0) noexcept
+    void *data(size_t offset = 0) const noexcept
     {
         return uint8Data(offset);
     }
 
-    const void *data(size_t offset = 0) const noexcept
+    uint8_t *uint8Data(size_t offset = 0) const noexcept
     {
-        return uint8Data(offset);
-    }
-
-    uint8_t *uint8Data(size_t offset = 0) noexcept
-    {
-        return reinterpret_cast<uint8_t*>(data_) + offset;
-    }
-
-    const uint8_t *uint8Data(size_t offset = 0) const noexcept
-    {
-        return reinterpret_cast<const uint8_t*>(data_) + offset;
+        return reinterpret_cast<uint8_t *>(addr_) + offset;
     }
 
     size_t size() const noexcept
     {
-        return size_;
+        return len_;
+    }
+
+    bool offsetValid(size_t offset) const noexcept
+    {
+        return addr_ && offset < len_;
     }
 
 private:
-    void allocate(size_t size)
+    ScopedMMap(void *addr, size_t len) noexcept:
+        addr_(addr),
+        len_(len)
     {
-        if (posix_memalign(&data_, 4096, size))
-            throw std::system_error(errno, std::system_category(), "posix_memalign");
-
-        size_ = size;
     }
 
-    void *data_{ };
-    size_t size_{ };
+    void *addr_{ };
+    size_t len_{ };
 };
 
-class BufferPool: public std::enable_shared_from_this<BufferPool>
+////////////////////////////////////////////////////////////////////////////////
+// FreeList
+
+class FreeList
 {
 public:
-    struct Item
+    static constexpr auto End = ~size_t{0};
+
+    FreeList() = default;
+
+    explicit FreeList(size_t size)
     {
-        Item() = default;
-
-        Item(const std::shared_ptr<BufferPool> &pool, AlignedBuffer buf):
-            pool(pool),
-            buf(std::move(buf))
-        {
-        }
-
-        Item(Item &&o) = default;
-        Item &operator=(Item &&o) = default;
-
-        ~Item() noexcept
-        {
-            try {
-                spdlog::info("dtor put {}", (void *)pool.get());
-                if (pool)
-                    pool->put(std::move(buf));
-            } catch (...) {
-            }
-        }
-
-        std::shared_ptr<BufferPool> pool{ };
-        AlignedBuffer buf{ };
-    };
-
-    static std::shared_ptr<BufferPool> create()
-    {
-        return std::shared_ptr<BufferPool>(new BufferPool);
+        list_.resize(size);
+        std::iota(begin(list_), end(list_), 1u);
+        list_.back() = End;
     }
 
-    Item get(size_t sz)
+    size_t get()
     {
-        AlignedBuffer buf{ };
+        auto idx = free_;
 
-        if (!bufs_.empty())
+        if (free_ != End)
+            free_ = list_[free_];
+
+        return idx;
+    }
+
+    void put(size_t idx)
+    {
+        if (idx < list_.size())
+            list_[idx] = free_;
+
+        free_ = idx;
+    }
+
+private:
+    std::vector<size_t> list_{ };
+    size_t free_{ };
+};
+
+////////////////////////////////////////////////////////////////////////////////
+// 
+
+class BufferPool
+{
+public:
+    struct Buffer
+    {
+    public:
+        void *data() noexcept { return data_; };
+        const void *data() const noexcept { return data_; };
+
+        uint8_t *uint8Data() noexcept { return reinterpret_cast<uint8_t *>(data_); };
+        const uint8_t *uint8Data() const noexcept { return reinterpret_cast<const uint8_t *>(data_); };
+
+        size_t size() const noexcept { return size_; };
+
+        size_t freeIndex() const noexcept { return freeIdx_; }
+
+    private:
+        friend class BufferPool;
+
+        Buffer(size_t index, void *data, size_t size):
+            data_(data),
+            size_(size),
+            freeIdx_(index)
         {
-            buf = std::move(bufs_.back());
-            bufs_.pop_back();
         }
 
-        if (!buf.data() || buf.size() < sz)
-        {
-            spdlog::info("alloc {}", sz);
-            buf = AlignedBuffer{sz};
-        }
+        void *data_{ };
+        size_t size_{ };
+        size_t freeIdx_{ };
+    };
+
+    BufferPool() = default;
+
+    BufferPool(size_t chunkSize, size_t chunkCount):
+        chunkSize_(chunkSize),
+        chunkCount_(chunkCount)
+    {
+        init();
+    }
+
+    Buffer get()
+    {
+        auto idx = freeList_.get();
 
         return {
-            shared_from_this(),
-            std::move(buf)
+            idx,
+            mmap_.uint8Data(idx * chunkSize_),
+            chunkSize_
         };
     }
 
-    void put(AlignedBuffer item)
+    void put(Buffer buf)
     {
-        bufs_.push_back(std::move(item));
+        freeList_.put(buf.freeIndex());
     }
 
 private:
-    BufferPool() = default;
+    void init()
+    {
+        mmap_ = ScopedMMap::map(
+            nullptr,
+            roundBlockSize(chunkSize_ * chunkCount_),
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE,
+            -1,
+            0);
 
-    std::vector<AlignedBuffer> bufs_;
+        
+    }
+
+    FreeList freeList_{ };
+    ScopedMMap mmap_{ };
+    size_t chunkSize_{ };
+    size_t chunkCount_{ };
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -574,93 +618,6 @@ private:
 };
 
 ////////////////////////////////////////////////////////////////////////////////
-// ScopedMMap
-
-class ScopedMMap
-{
-public:
-    static ScopedMMap map(void *addr, size_t len, int prot, int flags, int fildes, off_t off)
-    {
-        auto p = ::mmap(addr, len, prot, flags, fildes, off);
-
-        if (p == MAP_FAILED)
-            throw std::system_error(errno, std::system_category(), "draft::ScopedMMap");
-
-        return {p, len};
-    }
-
-    ScopedMMap() = default;
-
-    ~ScopedMMap() noexcept
-    {
-        unmap();
-    }
-
-    ScopedMMap(const ScopedMMap &) = delete;
-    ScopedMMap &operator=(const ScopedMMap &) = delete;
-
-    ScopedMMap(ScopedMMap &&o) noexcept
-    {
-        *this = std::move(o);
-    }
-
-    ScopedMMap &operator=(ScopedMMap &&o) noexcept
-    {
-        using std::swap;
-
-        unmap();
-
-        swap(o.addr_, addr_);
-        swap(o.len_, len_);
-
-        return *this;
-    }
-
-    int unmap() noexcept
-    {
-        auto stat = 0;
-
-        if (addr_)
-            stat = ::munmap(addr_, len_);
-
-        addr_ = nullptr;
-        len_ = 0;
-
-        return stat;
-    }
-
-    void *data(size_t offset = 0) const noexcept
-    {
-        return uint8Data(offset);
-    }
-
-    uint8_t *uint8Data(size_t offset = 0) const noexcept
-    {
-        return reinterpret_cast<uint8_t *>(addr_) + offset;
-    }
-
-    size_t size() const noexcept
-    {
-        return len_;
-    }
-
-    bool offsetValid(size_t offset) const noexcept
-    {
-        return addr_ && offset < len_;
-    }
-
-private:
-    ScopedMMap(void *addr, size_t len) noexcept:
-        addr_(addr),
-        len_(len)
-    {
-    }
-
-    void *addr_{ };
-    size_t len_{ };
-};
-
-////////////////////////////////////////////////////////////////////////////////
 // CqueWrapper
 
 class CqeWrapper final
@@ -756,57 +713,12 @@ private:
 };
 
 ////////////////////////////////////////////////////////////////////////////////
-// FreeList
-
-class FreeList
-{
-public:
-    static constexpr auto End = ~size_t{0};
-
-    FreeList() = default;
-
-    explicit FreeList(size_t size)
-    {
-        list_.resize(size);
-        std::iota(begin(list_), end(list_), 1u);
-        list_.back() = End;
-    }
-
-    size_t get()
-    {
-        auto idx = free_;
-
-        if (free_ != End)
-            free_ = list_[free_];
-
-        return idx;
-    }
-
-    void put(size_t idx)
-    {
-        if (idx < list_.size())
-            list_[idx] = free_;
-
-        free_ = idx;
-    }
-
-private:
-    std::vector<size_t> list_{ };
-    size_t free_{ };
-};
-
-////////////////////////////////////////////////////////////////////////////////
 // Agent
 
 constexpr size_t mtuPayload(unsigned mtu) noexcept
 {
     return mtu - 48 - sizeof(wire::ChunkHeader);
 }
-
-constexpr size_t roundBlockSize(size_t len) noexcept
-{
-    return (len + 511u) & ~size_t{511u};
-};
 
 struct NetworkTarget
 {
