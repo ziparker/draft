@@ -302,7 +302,7 @@ private:
         spdlog::info("connection {} cb magic: {} {}"
             , rx.fd(), header.fileId, header.magic);
 
-        if (cb_)
+        if (false && cb_)
         {
             auto buf = Buffer{ };
             buf.resize(header.payloadLength);

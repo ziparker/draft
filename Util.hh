@@ -756,6 +756,46 @@ private:
 };
 
 ////////////////////////////////////////////////////////////////////////////////
+// FreeList
+
+class FreeList
+{
+public:
+    static constexpr auto End = ~size_t{0};
+
+    FreeList() = default;
+
+    explicit FreeList(size_t size)
+    {
+        list_.resize(size);
+        std::iota(begin(list_), end(list_), 1u);
+        list_.back() = End;
+    }
+
+    size_t get()
+    {
+        auto idx = free_;
+
+        if (free_ != End)
+            free_ = list_[free_];
+
+        return idx;
+    }
+
+    void put(size_t idx)
+    {
+        if (idx < list_.size())
+            list_[idx] = free_;
+
+        free_ = idx;
+    }
+
+private:
+    std::vector<size_t> list_{ };
+    size_t free_{ };
+};
+
+////////////////////////////////////////////////////////////////////////////////
 // Agent
 
 constexpr size_t mtuPayload(unsigned mtu) noexcept
@@ -789,9 +829,7 @@ public:
         initUring(6);
         initNetwork(conf);
 
-        freeList_.resize(1u << 6);
-        std::iota(begin(freeList_), end(freeList_), 1u);
-        freeList_.back() = ~size_t{0};
+        freeList_ = FreeList{1u << 6};
     }
 
     void cancel()
@@ -837,8 +875,7 @@ public:
             {
                 const auto xferPayloadLen = std::min(fileLen - fileOffset, payloadLen);
 
-                auto bufIdx = free_;
-                free_ = freeList_[free_];
+                auto bufIdx = freeList_.get();
 
                 auto buf = RawBuffer{map.uint8Data(bufIdx * mtu_), mtu_};
                 auto xfer = initReadXfer(buf, fd.get(), fileOffset, xferPayloadLen, fileId);
@@ -1166,11 +1203,7 @@ private:
             }
 
             if (isWrite || !useUring_)
-            {
-                if (freeIdx != ~size_t{0u})
-                    freeList_[freeIdx] = free_;
-                free_ = freeIdx;
-            }
+                freeList_.put(freeIdx);
 
             --sqeCount_;
         }
@@ -1314,8 +1347,7 @@ private:
 
     PollSet poll_{ };
     struct io_uring ring_{ };
-    std::vector<size_t> freeList_{ };
-    size_t free_{ };
+    FreeList freeList_{ };
     std::unordered_map<int, FdInfo> fdMap_{ };
     std::unordered_map<int, FdInfo>::iterator fdIter_{ };
     size_t sqeCount_{ };
