@@ -171,6 +171,8 @@ struct RawBuffer
     uint8_t *uint8Data() noexcept { return reinterpret_cast<uint8_t *>(data_); }
     const uint8_t *uint8Data() const noexcept { return reinterpret_cast<uint8_t *>(data_); }
 
+    size_t size() const noexcept { return size_; }
+
     uint8_t *data_{ };
     size_t size_{ };
 };
@@ -179,6 +181,8 @@ struct ConstRawBuffer
 {
     const void *data() const noexcept { return data_; }
     const uint8_t *uint8Data() const noexcept { return reinterpret_cast<const uint8_t *>(data_); }
+
+    size_t size() const noexcept { return size_; }
 
     const uint8_t *data_{ };
     size_t size_{ };
@@ -312,7 +316,7 @@ private:
 };
 
 ////////////////////////////////////////////////////////////////////////////////
-// 
+// BufferPool
 
 class BufferPool
 {
@@ -427,6 +431,17 @@ private:
     ScopedMMap mmap_{ };
     size_t chunkSize_{ };
     size_t chunkCount_{ };
+};
+
+struct SharedBufferPoolView
+{
+    const void *data() const noexcept { return view.data(); }
+    const uint8_t *uint8Data() const noexcept { return view.uint8Data(); }
+
+    size_t size() const noexcept { return view.size(); }
+
+    ConstRawBuffer view{ };
+    std::shared_ptr<const BufferPool::Buffer> buf;
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -1347,7 +1362,7 @@ public:
         done_ = true;
     }
 
-    int updateFile(unsigned fileId, size_t offset, Buffer buf)
+    int updateFile(unsigned fileId, size_t offset, const SharedBufferPoolView &buf)
     {
         auto xfer = initWrite(fileId, offset, std::move(buf));
 
@@ -1374,7 +1389,7 @@ public:
 private:
     struct IOState
     {
-        Buffer buf{ };
+        SharedBufferPoolView buf{ };
         iovec iov{ };
 
         size_t fileOffset{ };
@@ -1395,7 +1410,7 @@ private:
 
     void initFileState(FileAgentConfig conf);
 
-    std::unique_ptr<IOState> initWrite(unsigned fileId, size_t offset, Buffer buf)
+    std::unique_ptr<IOState> initWrite(unsigned fileId, size_t offset, const SharedBufferPoolView buf)
     {
         auto iter = fileMap_.find(fileId);
         if (iter == end(fileMap_))
@@ -1408,7 +1423,7 @@ private:
         xfer->fileId = fileId;
         xfer->fd = iter->second.fd.get();
 
-        xfer->iov.iov_base = xfer->buf.data();
+        xfer->iov.iov_base = const_cast<void *>(xfer->buf.data());
         xfer->iov.iov_len = xfer->buf.size();
 
         return xfer;

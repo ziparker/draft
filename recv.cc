@@ -241,8 +241,13 @@ void awaitTransfer(const Options &opts)
                 , buf.header->fileId
                 , buf.header->fileOffset);
 
-            //if (fileAgent)
-                //fileAgent->updateFile(buf.header->fileId, buf.header->fileOffset, std::move(buf));
+            auto view = util::SharedBufferPoolView {
+                {buf.view.uint8Data() + sizeof(*buf.header), buf.view.size() - sizeof(*buf.header)},
+                std::move(buf.buf)
+            };
+
+            if (fileAgent)
+                fileAgent->updateFile(buf.header->fileId, buf.header->fileOffset, std::move(view));
         });
 
     spdlog::info("starting transfer.");
