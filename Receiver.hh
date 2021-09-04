@@ -45,6 +45,12 @@ class Receiver
 public:
     using ChunkCallback = std::function<void(Receiver &, const wire::ChunkHeader &)>;
 
+    struct MessageBuffer
+    {
+        std::shared_ptr<BufferPool::Buffer> buf1, buf2;
+        iovec iov[2]{ };
+    };
+
     Receiver(ScopedFd fd, ChunkCallback &&cb, size_t rxBufSize = 1u << 16):
         cb_(std::move(cb)),
         fd_(std::move(fd))
@@ -205,7 +211,7 @@ private:
 
     ChunkCallback cb_;
     BufferPool pool_;
-    BufferPool::Buffer buf_;
+    std::shared_ptr<BufferPool::Buffer> buf_;
     ScopedFd fd_;
     size_t offset_{ };
 };
