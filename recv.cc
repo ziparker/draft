@@ -193,11 +193,11 @@ util::TransferRequest awaitTransferRequest(const Options &opts)
     const auto clientFdRaw = clientFd.get();
     auto rx = util::Receiver{
         std::move(clientFd),
-        [&reqBuf, &haveReq](util::Receiver &, const wire::ChunkHeader &header) {
+        [&reqBuf, &haveReq](util::Receiver &, const util::Receiver::MessageBuffer &buf) {
             spdlog::info("req chunk received.");
 
-            reqBuf.resize(header.payloadLength);
-            std::memcpy(reqBuf.data(), &header + 1, reqBuf.size());
+            reqBuf.resize(buf.header->payloadLength);
+            std::memcpy(reqBuf.data(), buf.header + 1, reqBuf.size());
             haveReq = true;
         }};
 
@@ -236,13 +236,13 @@ void awaitTransfer(const Options &opts)
         fileAgent = draft::util::FileAgent{std::move(req.config)};
 
     rxMgr.setChunkCallback(
-        [&fileAgent](const wire::ChunkHeader &header, draft::util::Buffer buf) {
+        [&fileAgent](const util::Receiver::MessageBuffer &buf) {
             spdlog::debug("write chunk: {} offset {}"
-                , header.fileId
-                , header.fileOffset);
+                , buf.header->fileId
+                , buf.header->fileOffset);
 
-            if (fileAgent)
-                fileAgent->updateFile(header.fileId, header.fileOffset, std::move(buf));
+            //if (fileAgent)
+                //fileAgent->updateFile(buf.header->fileId, buf.header->fileOffset, std::move(buf));
         });
 
     spdlog::info("starting transfer.");

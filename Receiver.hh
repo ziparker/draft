@@ -43,24 +43,26 @@ namespace draft::util {
 class Receiver
 {
 public:
-    using ChunkCallback = std::function<void(Receiver &, const wire::ChunkHeader &)>;
-
     struct MessageBuffer
     {
-        std::shared_ptr<BufferPool::Buffer> buf1, buf2;
-        iovec iov[2]{ };
+        ConstRawBuffer view{ };
+        const wire::ChunkHeader *header{ };
+        std::shared_ptr<const BufferPool::Buffer> buf;
     };
+
+    using ChunkCallback = std::function<void(Receiver &, const MessageBuffer &)>;
 
     Receiver(ScopedFd fd, ChunkCallback &&cb, size_t rxBufSize = 1u << 16):
         cb_(std::move(cb)),
         fd_(std::move(fd))
     {
         pool_ = BufferPool{rxBufSize, 1u << 12};
+        buf_ = std::make_shared<BufferPool::Buffer>(pool_.get());
     }
 
     int runOnce()
     {
-        auto len = ::recv(fd_.get(), buf_.uint8Data() + offset_, buf_.size() - offset_, 0);
+        auto len = ::recv(fd_.get(), buf_->uint8Data() + offset_, buf_->size() - offset_, 0);
 
         if (len < 0)
         {
@@ -74,7 +76,7 @@ public:
             return -EOF;
 
         spdlog::info("handle {} bytes @ offset {}", len, offset_);
-        handleData({buf_.data(), offset_ + static_cast<size_t>(len)});
+        handleData({buf_->uint8Data(), offset_ + static_cast<size_t>(len)});
 
         return 0;
     }
@@ -100,7 +102,7 @@ private:
             auto buf = pool_.get();
 
             std::memcpy(buf.data(), view.data + offset, view.size - offset);
-            buf_ = buf;
+            buf_ = std::make_shared<BufferPool::Buffer>(std::move(buf));
 
             offset_ = view.size - offset;
             spdlog::warn("no header found, offset set to {}", offset_);
@@ -118,7 +120,7 @@ private:
             const auto size = view.size;
 
             spdlog::info("process offset {} len {}"
-                , reinterpret_cast<uintptr_t>(view.data) - reinterpret_cast<uintptr_t>(buf_.data())
+                , reinterpret_cast<uintptr_t>(view.data) - reinterpret_cast<uintptr_t>(buf_->data())
                 , view.size);
 
             view = processChunk(view);
@@ -139,8 +141,12 @@ private:
 
         if (view.size)
         {
+            auto buf = pool_.get();
+
+            std::memcpy(buf.data(), view.data, view.size);
+            buf_ = std::make_shared<BufferPool::Buffer>(std::move(buf));
+
             spdlog::info("Receiver: shift {}", view.size);
-            std::memmove(buf_.data(), view.data, view.size);
         }
 
         offset_ = view.size;
@@ -174,12 +180,12 @@ private:
         {
             spdlog::warn("invalid chunk at {} buf offset {} ({:#x})"
                 , static_cast<const void *>(view.data)
-                , reinterpret_cast<uintptr_t>(view.data) - reinterpret_cast<uintptr_t>(buf_.data())
-                , reinterpret_cast<uintptr_t>(view.data) - reinterpret_cast<uintptr_t>(buf_.data()));
+                , reinterpret_cast<uintptr_t>(view.data) - reinterpret_cast<uintptr_t>(buf_->data())
+                , reinterpret_cast<uintptr_t>(view.data) - reinterpret_cast<uintptr_t>(buf_->data()));
 
             #if 1
             *view.data = 0xff;
-            spdlog::warn(" -> buf data: {}", spdlog::to_hex(begin(buf_), end(buf_)));
+            spdlog::warn(" -> buf data: {}", spdlog::to_hex(buf_->uint8Data(), buf_->uint8Data() + buf_->size()));
 
             std::exit(42);
             #else
@@ -204,7 +210,15 @@ private:
         view.size -= chunkLen;
 
         if (cb_)
-            cb_(*this, *chunk);
+        {
+            auto buf = MessageBuffer {
+                {reinterpret_cast<const uint8_t *>(chunk), chunkLen},
+                chunk,
+                buf_
+            };
+
+            cb_(*this, buf);
+        }
 
         return view;
     }
@@ -219,7 +233,7 @@ private:
 class ReceiverManager
 {
 public:
-    using ChunkCallback = std::function<void(const wire::ChunkHeader &, Buffer)>;
+    using ChunkCallback = std::function<void(const Receiver::MessageBuffer &)>;
 
     explicit ReceiverManager(std::vector<ScopedFd> fds, size_t rxBufSize):
         rxBufSize_(rxBufSize)
@@ -308,18 +322,13 @@ private:
         return true;
     }
 
-    void handleChunk(Receiver &rx, const wire::ChunkHeader &header)
+    void handleChunk(Receiver &rx, const Receiver::MessageBuffer &buf)
     {
         spdlog::info("connection {} cb magic: {} {}"
-            , rx.fd(), header.fileId, header.magic);
+            , rx.fd(), buf.header->fileId, buf.header->magic);
 
         if (false && cb_)
-        {
-            auto buf = Buffer{ };
-            buf.resize(header.payloadLength);
-            std::memcpy(buf.data(), &header + 1, buf.size());
-            cb_(header, std::move(buf));
-        }
+            cb_(std::move(buf));
 
         ++count_;
     }

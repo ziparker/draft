@@ -175,6 +175,15 @@ struct RawBuffer
     size_t size_{ };
 };
 
+struct ConstRawBuffer
+{
+    const void *data() const noexcept { return data_; }
+    const uint8_t *uint8Data() const noexcept { return reinterpret_cast<const uint8_t *>(data_); }
+
+    const uint8_t *data_{ };
+    size_t size_{ };
+};
+
 ////////////////////////////////////////////////////////////////////////////////
 // ScopedMMap
 
@@ -324,14 +333,19 @@ public:
         Buffer &operator=(Buffer &&o) noexcept
         {
             if (pool_)
-                pool_->put(*this);
+                pool_->put(freeIdx_);
 
             data_ = o.data_;
-            size_ = o.size_;
-            freeIdx_ = o.freeIdx_;
-            pool_ = o.pool_;
+            o.data_ = nullptr;
 
-            o = { };
+            size_ = o.size_;
+            o.size_ = 0;
+
+            freeIdx_ = o.freeIdx_;
+            o.freeIdx_ = 0;
+
+            pool_ = o.pool_;
+            o.pool_ = nullptr;
 
             return *this;
         }
@@ -339,7 +353,7 @@ public:
         ~Buffer() noexcept
         {
             if (pool_)
-                pool_->put(*this);
+                pool_->put(freeIdx_);
         }
 
         void *data() noexcept { return data_; };
@@ -383,16 +397,11 @@ public:
         auto idx = freeList_.get();
 
         return {
+            *this,
             idx,
             mmap_.uint8Data(idx * chunkSize_),
-            chunkSize_,
-            *this
+            chunkSize_
         };
-    }
-
-    void put(Buffer buf)
-    {
-        freeList_.put(buf.freeIndex());
     }
 
 private:
@@ -407,6 +416,11 @@ private:
             0);
 
         freeList_ = FreeList{chunkCount_};
+    }
+
+    void put(size_t index)
+    {
+        freeList_.put(index);
     }
 
     FreeList freeList_{ };
@@ -1121,7 +1135,6 @@ private:
             //
             // if it is a file read, turn it into a net write and submit,
             // otherwise, we're done.
-            const auto isWrite = xfer->isWrite;
             if (!xfer->isWrite)
             {
                 xfer = initWriteXfer(std::move(xfer));
