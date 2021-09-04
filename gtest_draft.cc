@@ -32,6 +32,9 @@
 
 using namespace draft;
 
+////////////////////////////////////////////////////////////////////////////////
+// ScopedFd
+
 TEST(scoped_fd, ctor)
 {
     using namespace draft::util;
@@ -70,4 +73,19 @@ TEST(scoped_mmap, unmap)
     EXPECT_EQ(0, map.size());
     EXPECT_FALSE(map.offsetValid(0));
     EXPECT_FALSE(map.offsetValid(4096-1));
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// FreeList
+
+TEST(free_list, get)
+{
+    using namespace draft::util;
+
+    auto list = FreeList{10};
+
+    for (size_t i = 0u; i < 10u; ++i)
+        EXPECT_EQ(i, list.get());
+
+    EXPECT_EQ(FreeList::End, list.get());
 }

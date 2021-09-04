@@ -75,7 +75,7 @@ public:
         if (!len)
             return -EOF;
 
-        spdlog::info("handle {} bytes @ offset {}", len, offset_);
+        spdlog::trace("handle {} bytes @ offset {}", len, offset_);
         handleData({buf_->uint8Data(), offset_ + static_cast<size_t>(len)});
 
         return 0;
@@ -119,18 +119,18 @@ private:
         {
             const auto size = view.size;
 
-            spdlog::info("process offset {} len {}"
+            spdlog::trace("process offset {} len {}"
                 , reinterpret_cast<uintptr_t>(view.data) - reinterpret_cast<uintptr_t>(buf_->data())
                 , view.size);
 
             view = processChunk(view);
-            spdlog::info("  -> {}", view.size);
+            spdlog::trace("  -> {}", view.size);
 
             if (size == view.size)
             {
                 auto header = reinterpret_cast<const wire::ChunkHeader *>(view.data);
 
-                spdlog::info("incomplete frame for {} - waiting for {}/{}"
+                spdlog::trace("incomplete frame for {} - waiting for {}/{}"
                     , header->fileId
                     , sizeof(*header) + header->payloadLength - view.size
                     , sizeof(*header) + header->payloadLength);
@@ -146,7 +146,7 @@ private:
             std::memcpy(buf.data(), view.data, view.size);
             buf_ = std::make_shared<BufferPool::Buffer>(std::move(buf));
 
-            spdlog::info("Receiver: shift {}", view.size);
+            spdlog::trace("Receiver: shift {}", view.size);
         }
 
         offset_ = view.size;
@@ -200,8 +200,8 @@ private:
 
         auto chunkLen = sizeof(*chunk) + chunk->payloadLength;
 
-        spdlog::info("  chunk len: {}", chunkLen);
-        spdlog::info("  view len: {}", view.size);
+        spdlog::trace("  chunk len: {}", chunkLen);
+        spdlog::trace("  view len: {}", view.size);
 
         if (chunkLen > view.size)
             return view;
@@ -324,7 +324,7 @@ private:
 
     void handleChunk(Receiver &rx, const Receiver::MessageBuffer &buf)
     {
-        spdlog::info("connection {} cb magic: {} {}"
+        spdlog::trace("connection {} cb magic: {} {}"
             , rx.fd(), buf.header->fileId, buf.header->magic);
 
         if (cb_)

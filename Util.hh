@@ -1612,7 +1612,7 @@ private:
 
         if (!sqe)
         {
-            spdlog::info("unable to fetch sqe.");
+            spdlog::error("unable to fetch sqe.");
             return -EBUSY;
         }
 
