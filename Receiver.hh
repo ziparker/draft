@@ -327,7 +327,7 @@ private:
         spdlog::info("connection {} cb magic: {} {}"
             , rx.fd(), buf.header->fileId, buf.header->magic);
 
-        if (false && cb_)
+        if (cb_)
             cb_(std::move(buf));
 
         ++count_;
