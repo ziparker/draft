@@ -902,11 +902,6 @@ private:
 ////////////////////////////////////////////////////////////////////////////////
 // Agent
 
-constexpr size_t mtuPayload(unsigned mtu) noexcept
-{
-    return mtu - 48 - sizeof(wire::ChunkHeader);
-}
-
 struct NetworkTarget
 {
     std::string ip{ };
@@ -916,19 +911,20 @@ struct NetworkTarget
 struct AgentConfig
 {
     std::vector<NetworkTarget> targets;
-    unsigned mtu{9000};
+    size_t blockSize{1u << 22};
+    size_t txRingPwr{5};
 };
 
 class MmapAgent
 {
 public:
     explicit MmapAgent(AgentConfig conf):
-        mtu_(conf.mtu)
+        blockSize_(conf.blockSize)
     {
-        initUring(6);
+        initUring(conf.txRingPwr);
         initNetwork(conf);
 
-        pool_ = BufferPool{mtu_, 64};
+        pool_ = BufferPool{blockSize_, 1u << conf.txRingPwr};
     }
 
     void cancel()
@@ -951,7 +947,7 @@ public:
         spdlog::info("file {} fd: {}", path, fd.get());
 
         const auto fileLen = fs::file_size(path);
-        const auto payloadLen = mtu_;//mtuPayload(mtu_);
+        const auto payloadLen = blockSize_;
 
         done_ = false;
 
@@ -1434,7 +1430,7 @@ private:
     std::unordered_map<int, FdInfo>::iterator fdIter_{ };
     size_t sqeCount_{ };
     size_t ringDepth_{ };
-    size_t mtu_{9000};
+    size_t blockSize_{1u << 22};
     bool done_{ };
     bool useUring_{ };
 };

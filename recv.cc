@@ -56,7 +56,7 @@ struct Options
 {
     std::vector<draft::util::NetworkTarget> targets{ };
     draft::util::NetworkTarget service{"localhost", 2020};
-    size_t rxBufSize{1u << 16};
+    size_t rxBufSize{1u << 23};
     size_t rxRingPwr{5};
     bool noFile{ };
 };
