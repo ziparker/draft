@@ -37,6 +37,8 @@
 #include <unordered_map>
 #include <utility>
 
+#include <set>
+
 #include <fcntl.h>
 #include <sys/epoll.h>
 #include <sys/mman.h>
@@ -288,12 +290,15 @@ public:
     explicit FreeList(size_t size)
     {
         list_.resize(size);
-        std::iota(begin(list_), end(list_), 1u);
-        list_.back() = End;
+        std::iota(begin(list_), end(list_), 0u);
+        //list_.back() = End;
     }
 
     size_t get()
     {
+        auto back = list_.back();
+        list_.pop_back();
+        return back;
         auto idx = free_;
 
         if (free_ != End)
@@ -306,6 +311,8 @@ public:
 
     void put(size_t idx)
     {
+        list_.push_back(idx);
+        return;
         if (idx < list_.size())
             list_[idx] = free_;
 
@@ -1366,6 +1373,8 @@ public:
 
     int updateFile(unsigned fileId, size_t offset, const SharedBufferPoolView &buf)
     {
+        spdlog::info("update file buf {} {}", buf.buf->freeIndex(), static_cast<uintptr_t>(buf.uint8Data() - buf.buf->uint8Data()));
+
         auto xfer = initWrite(fileId, offset, std::move(buf));
 
         if (!xfer)
@@ -1422,7 +1431,6 @@ private:
         auto xfer = std::make_unique<IOState>();
         xfer->buf = std::move(buf);
 
-        spdlog::info("next xfer {}", xfer->buf.data());
         //xfer->buf.resize(xfer->sbuf.size());
         //std::memcpy(xfer->buf.data(), xfer->sbuf.data(), xfer->sbuf.size());
 
@@ -1594,7 +1602,7 @@ private:
                 continue;
             }
 
-            spdlog::info("complete cqe {}", xfer->buf.data());
+            spdlog::info("complete cqe {}", xfer->buf.buf->freeIndex());
 
             --sqeCount_;
         }
