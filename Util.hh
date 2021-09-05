@@ -298,6 +298,8 @@ public:
 
         if (free_ != End)
             free_ = list_[free_];
+        else
+            spdlog::error("hit end of free list.");
 
         return idx;
     }
@@ -1420,6 +1422,7 @@ private:
         auto xfer = std::make_unique<IOState>();
         xfer->buf = std::move(buf);
 
+        spdlog::info("next xfer {}", xfer->buf.data());
         //xfer->buf.resize(xfer->sbuf.size());
         //std::memcpy(xfer->buf.data(), xfer->sbuf.data(), xfer->sbuf.size());
 
@@ -1590,6 +1593,8 @@ private:
 
                 continue;
             }
+
+            spdlog::info("complete cqe {}", xfer->buf.data());
 
             --sqeCount_;
         }

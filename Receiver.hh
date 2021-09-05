@@ -58,6 +58,7 @@ public:
     {
         pool_ = BufferPool{rxBufSize, 1u << 12};
         buf_ = std::make_shared<BufferPool::Buffer>(pool_.get());
+        spdlog::info("first buf {}", buf_->data());
     }
 
     int runOnce()
@@ -142,6 +143,7 @@ private:
         if (view.size)
         {
             auto buf = pool_.get();
+            spdlog::info("next buf {}", buf.data());
 
             std::memcpy(buf.data(), view.data, view.size);
             buf_ = std::make_shared<BufferPool::Buffer>(std::move(buf));
