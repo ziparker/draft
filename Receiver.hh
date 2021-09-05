@@ -146,11 +146,11 @@ private:
 
             std::memcpy(buf.data(), view.data, view.size);
             buf_ = std::make_shared<BufferPool::Buffer>(std::move(buf));
-
-            spdlog::trace("Receiver: shift {}", view.size);
         }
         else
+        {
             buf_ = std::make_shared<BufferPool::Buffer>(pool_.get());
+        }
 
         offset_ = view.size;
     }
