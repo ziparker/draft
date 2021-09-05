@@ -47,7 +47,7 @@ public:
     {
         ConstRawBuffer view{ };
         const wire::ChunkHeader *header{ };
-        std::shared_ptr<const BufferPool::Buffer> buf;
+        RefdPointer<BufferPool::Buffer> buf;
     };
 
     using ChunkCallback = std::function<void(Receiver &, const MessageBuffer &)>;
@@ -57,7 +57,7 @@ public:
         fd_(std::move(fd))
     {
         pool_ = BufferPool{rxBufSize, 1u << 12};
-        buf_ = std::make_shared<BufferPool::Buffer>(pool_.get());
+        buf_ = make_refd<BufferPool::Buffer>(pool_.get());
         spdlog::info("first buf {}", buf_->data());
     }
 
@@ -103,7 +103,7 @@ private:
             auto buf = pool_.get();
 
             std::memcpy(buf.data(), view.data + offset, view.size - offset);
-            buf_ = std::make_shared<BufferPool::Buffer>(std::move(buf));
+            buf_ = make_refd<BufferPool::Buffer>(std::move(buf));
 
             offset_ = view.size - offset;
             spdlog::warn("no header found, offset set to {}", offset_);
@@ -145,11 +145,11 @@ private:
             auto buf = pool_.get();
 
             std::memcpy(buf.data(), view.data, view.size);
-            buf_ = std::make_shared<BufferPool::Buffer>(std::move(buf));
+            buf_ = make_refd<BufferPool::Buffer>(std::move(buf));
         }
         else
         {
-            buf_ = std::make_shared<BufferPool::Buffer>(pool_.get());
+            buf_ = make_refd<BufferPool::Buffer>(pool_.get());
         }
 
         offset_ = view.size;
@@ -228,7 +228,7 @@ private:
 
     ChunkCallback cb_;
     BufferPool pool_;
-    std::shared_ptr<BufferPool::Buffer> buf_;
+    RefdPointer<BufferPool::Buffer> buf_;
     ScopedFd fd_;
     size_t offset_{ };
 };

@@ -437,6 +437,126 @@ private:
     size_t chunkCount_{ };
 };
 
+template <typename T>
+struct RefdPointer
+{
+    struct Info
+    {
+        size_t useCount{ };
+    };
+
+    RefdPointer() = default;
+
+    explicit RefdPointer(T *t):
+        info_(new Info),
+        t_(t)
+    {
+        info_->useCount = 1;
+    }
+
+    RefdPointer(const RefdPointer &p)
+    {
+        *this = p;
+    }
+
+    RefdPointer &operator=(const RefdPointer &p)
+    {
+        if (this == &p)
+            return *this;
+
+        decUse();
+
+        info_ = p.info_;
+        t_ = p.t_;
+
+        incUse();
+
+        return *this;
+    }
+
+    RefdPointer(RefdPointer &&p) noexcept
+    {
+        *this = std::move(p);
+    }
+
+    RefdPointer &operator=(RefdPointer &&p) noexcept
+    {
+        if (this == &p)
+            return *this;
+
+        decUse();
+
+        info_ = p.info_;
+        t_ = p.t_;
+
+        p.info_ = nullptr;
+        p.t_ = nullptr;
+
+        return *this;
+    }
+
+    ~RefdPointer() noexcept
+    {
+        decUse();
+    }
+
+    T *operator->() noexcept
+    {
+        return t_;
+    }
+
+    const T *operator->() const noexcept
+    {
+        return t_;
+    }
+
+    T &operator*() noexcept
+    {
+        return *t_;
+    }
+
+    const T &operator*() const noexcept
+    {
+        return *t_;
+    }
+
+    void decUse() noexcept
+    {
+        if (!info_)
+            return;
+
+        --info_->useCount;
+
+        if (!info_->useCount)
+        {
+            delete info_;
+            delete t_;
+
+            info_ = nullptr;
+            t_ = nullptr;
+        }
+    }
+
+    void incUse() noexcept
+    {
+        if (!info_)
+            return;
+
+        ++info_->useCount;
+    }
+
+    Info *info_{ };
+    T *t_{ };
+};
+
+template <typename T, typename ...Args>
+RefdPointer<T> make_refd(Args &&...args)
+{
+    return RefdPointer{
+        new T(std::forward<Args>(args)...)
+    };
+}
+
 struct SharedBufferPoolView
 {
     const void *data() const noexcept { return view.data(); }
@@ -445,7 +565,7 @@ struct SharedBufferPoolView
     size_t size() const noexcept { return view.size(); }
 
     ConstRawBuffer view{ };
-    std::shared_ptr<const BufferPool::Buffer> buf;
+    RefdPointer<BufferPool::Buffer> buf{ };
 };
 
 ////////////////////////////////////////////////////////////////////////////////
