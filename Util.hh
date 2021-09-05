@@ -1390,6 +1390,7 @@ private:
     struct IOState
     {
         SharedBufferPoolView buf{ };
+        //Buffer buf{ };
         iovec iov{ };
 
         size_t fileOffset{ };
@@ -1418,6 +1419,10 @@ private:
 
         auto xfer = std::make_unique<IOState>();
         xfer->buf = std::move(buf);
+
+        //xfer->buf.resize(xfer->sbuf.size());
+        //std::memcpy(xfer->buf.data(), xfer->sbuf.data(), xfer->sbuf.size());
+
         xfer->fileOffset = offset;
         xfer->len = xfer->buf.size();
         xfer->fileId = fileId;
