@@ -57,6 +57,7 @@ struct Options
     std::vector<draft::util::NetworkTarget> targets{ };
     draft::util::NetworkTarget service{"localhost", 2020};
     size_t rxBufSize{1u << 16};
+    size_t rxRingPwr{5};
     bool noFile{ };
 };
 
@@ -76,9 +77,10 @@ size_t parseSize(const std::string &arg)
 
 Options parseOpts(int argc, char **argv)
 {
-    constexpr const char *shortOpts = "b:hns:t:";
+    constexpr const char *shortOpts = "b:hi:ns:t:";
     constexpr const struct option longOpts[] = {
         {"help", no_argument, nullptr, 'h'},
+        {"iodepth", required_argument, nullptr, 'i'},
         {"nofile", no_argument, nullptr, 'n'},
         {"rxbuf", required_argument, nullptr, 'b'},
         {"service", required_argument, nullptr, 's'},
@@ -91,7 +93,7 @@ Options parseOpts(int argc, char **argv)
 
     const auto usage = [argv] {
             std::cerr << fmt::format(
-                "usage: {} recv [-b <rx buf size>][-h][-n][-s <server[:port]>] -t target [-t target ...]\n"
+                "usage: {} recv [-b <rx buf size>][-h][-i <depth pwr>][-n][-s <server[:port]>] -t target [-t target ...]\n"
                 , ::basename(argv[0]));
         };
 
@@ -107,6 +109,9 @@ Options parseOpts(int argc, char **argv)
             case 'h':
                 usage();
                 std::exit(0);
+            case 'i':
+                opts.rxRingPwr = draft::util::parseSize(optarg);
+                break;
             case 'n':
                 opts.noFile = true;
                 break;
@@ -221,11 +226,13 @@ void awaitTransfer(const Options &opts)
     // bind receipt ports so we're ready for data immediately after handling
     // the transfer request.
     auto serviceFds = bindTargets(opts.targets);
-    auto rxMgr = draft::util::ReceiverManager(std::move(serviceFds), opts.rxBufSize);
+    auto rxMgr = draft::util::ReceiverManager(
+        std::move(serviceFds), opts.rxBufSize, opts.rxRingPwr);
 
     // wait for a transfer request.
     auto req = awaitTransferRequest(opts);
     req.config.root = ".";
+    req.config.ringPwr = opts.rxRingPwr;
 
     spdlog::info("creating target files.");
     util::createTargetFiles(".", req.config.fileInfo);

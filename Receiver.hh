@@ -52,11 +52,14 @@ public:
 
     using ChunkCallback = std::function<void(Receiver &, const MessageBuffer &)>;
 
-    Receiver(ScopedFd fd, ChunkCallback &&cb, size_t rxBufSize = 1u << 16):
+    Receiver(ScopedFd fd, ChunkCallback &&cb, size_t rxBufSize = 1u << 16, size_t rxRingPwr = 5):
         cb_(std::move(cb)),
         fd_(std::move(fd))
     {
-        pool_ = BufferPool{rxBufSize, 1u << 12};
+        if (rxRingPwr > 12)
+            throw std::invalid_argument("Receiver: ring power must be <= 12");
+
+        pool_ = BufferPool{rxBufSize, 1u << rxRingPwr};
         buf_ = make_refd<BufferPool::Buffer>(pool_.get());
         spdlog::info("first buf {}", buf_->data());
     }
@@ -238,8 +241,9 @@ class ReceiverManager
 public:
     using ChunkCallback = std::function<void(const Receiver::MessageBuffer &)>;
 
-    explicit ReceiverManager(std::vector<ScopedFd> fds, size_t rxBufSize):
-        rxBufSize_(rxBufSize)
+    explicit ReceiverManager(std::vector<ScopedFd> fds, size_t rxBufSize, size_t rxRingPwr):
+        rxBufSize_(rxBufSize),
+        rxRingPwr_(rxRingPwr)
     {
         initService(std::move(fds));
     }
@@ -288,7 +292,8 @@ private:
             [this](auto &rx, const auto &header) {
                 handleChunk(rx, header);
             },
-            rxBufSize_);
+            rxBufSize_,
+            rxRingPwr_);
 
         pollSet_.add(rx->fd(), EPOLLIN,
             [this, rxp = rx.get()](unsigned) {
@@ -341,6 +346,7 @@ private:
     std::unordered_map<int, std::unique_ptr<Receiver>> receivers_;
     PollSet pollSet_;
     size_t rxBufSize_{1u << 16};
+    size_t rxRingPwr_{5};
     size_t count_{ };
 };
 

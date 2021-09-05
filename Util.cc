@@ -416,6 +416,17 @@ NetworkTarget parseTarget(const std::string &str)
     return {str.substr(0, ipEnd), static_cast<uint16_t>(port)};
 }
 
+size_t parseSize(const std::string &str)
+{
+    size_t pos{ };
+    auto sz = std::stoul(str, &pos);
+
+    if (pos != str.size())
+        throw std::invalid_argument(fmt::format("size option: {}", str));
+
+    return sz;
+}
+
 void createTargetFiles(const std::string &root, const std::vector<FileInfo> &infos)
 {
     namespace fs = std::filesystem;

@@ -1465,6 +1465,7 @@ struct FileAgentConfig
 {
     std::vector<FileInfo> fileInfo;
     std::string root;
+    size_t ringPwr{5};
 };
 
 struct TransferRequest
@@ -1477,7 +1478,7 @@ class FileAgent
 public:
     explicit FileAgent(FileAgentConfig conf)
     {
-        initUring(12);
+        initUring(conf.ringPwr);
         initFileState(std::move(conf));
     }
 
@@ -1813,6 +1814,7 @@ private:
 std::vector<FileInfo> getFileInfo(const std::string &path);
 
 draft::util::NetworkTarget parseTarget(const std::string &str);
+size_t parseSize(const std::string &str);
 
 void createTargetFiles(const std::string &root, const std::vector<FileInfo> &infos);
 
