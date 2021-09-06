@@ -71,6 +71,9 @@ int dispatchSubcommand(int argc, char **argv)
     #ifdef DRAFT_HAVE_COMPRESS
     if (subProg == "compress")
         return cmd::compress(argc, argv);
+
+    if (subProg == "decompress")
+        return cmd::decompress(argc, argv);
     #endif
 
     #ifdef DRAFT_HAVE_CUDA

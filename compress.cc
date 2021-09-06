@@ -55,10 +55,9 @@ struct CompressOptions
 
 CompressOptions parseOptions(int argc, char **argv)
 {
-    constexpr const char *shortOpts = "b:c:h";
+    constexpr const char *shortOpts = "b:h";
     constexpr const struct option longOpts[] = {
         {"block-size", required_argument, nullptr, 'b'},
-        {"chunk-size", required_argument, nullptr, 'c'},
         {"help", no_argument, nullptr, 'h'},
         {nullptr, 0, nullptr, 0}
     };
@@ -68,7 +67,7 @@ CompressOptions parseOptions(int argc, char **argv)
 
     const auto usage = [argv] {
             std::cout << fmt::format(
-                "usage: {} compress [-b <block size>][-c <chunk size>[-h] <file>\n"
+                "usage: {} decompress [-b <block size>][-h] <input> <output>\n"
                 , ::basename(argv[0]));
         };
 
@@ -104,11 +103,16 @@ CompressOptions parseOptions(int argc, char **argv)
     if (!opts.nThreads)
         opts.nThreads = static_cast<unsigned>(get_nprocs());
 
-    if (optind < subArgc)
+    if (subArgc - optind != 1)
     {
-        spdlog::error("trailing args..");
+        usage();
         std::exit(1);
     }
+
+    opts.inPath = subArgv[optind];
+    opts.outPath = subArgv[optind + 1];
+
+    spdlog::info("decompress {} -> {}", opts.inPath, opts.outPath);
 
     return opts;
 }
