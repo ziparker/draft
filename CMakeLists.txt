@@ -109,13 +109,13 @@ target_link_libraries(draftutil
     PUBLIC nlohmann_json::nlohmann_json ${uring_LIBRARIES})
 
 if (blosc2_LIBRARY)
-    target_compile_definitions(draftutil PRIVATE DRAFT_HAVE_COMPRESS=1)
+    target_compile_definitions(draftutil PUBLIC DRAFT_HAVE_COMPRESS=1)
     target_link_libraries(draftutil PRIVATE ${blosc2_LIBRARY})
     target_include_directories(draftutil PRIVATE ${blosc2_INCLUDE_DIRS})
 endif ()
 
 if (nvcomp_LIBRARY)
-    target_compile_definitions(draftutil PRIVATE DRAFT_HAVE_CUDA=1)
+    target_compile_definitions(draftutil PUBLIC DRAFT_HAVE_CUDA=1)
     target_link_libraries(draftutil PRIVATE ${nvcomp_LIBRARY} ${cufile_LIBRARY} CUDA::cudart)
     target_include_directories(draftutil PRIVATE ${nvcomp_INCLUDE_DIRS} ${cufile_INCLUDE_DIRS})
 endif ()

@@ -68,15 +68,12 @@ int dispatchSubcommand(int argc, char **argv)
     if (subProg == "recv")
         return cmd::recv(argc, argv);
 
-    if (subProg == "nvcompress")
-        return cmd::nvcompress(argc, argv);
-
-    #if DRAFT_HAVE_COMPRESS
+    #ifdef DRAFT_HAVE_COMPRESS
     if (subProg == "compress")
         return cmd::compress(argc, argv);
     #endif
 
-    #if DRAFT_HAVE_CUDA
+    #ifdef DRAFT_HAVE_CUDA
     if (subProg == "nvcompress")
         return cmd::nvcompress(argc, argv);
     #endif
@@ -92,12 +89,12 @@ int main(int argc, char **argv)
 {
     spdlog::cfg::load_env_levels();
 
-    //try {
-        dispatchSubcommand(argc, argv);
-    //} catch (const std::exception &ex) {
-    //    spdlog::error("exception: {}", ex.what());
-    //    return 1;
-    //}
+    try {
+      dispatchSubcommand(argc, argv);
+    } catch (const std::exception &ex) {
+        spdlog::error("exception: {}", ex.what());
+        return 1;
+    }
 
     return 0;
 }

@@ -46,9 +46,8 @@ using namespace draft;
 struct CompressOptions
 {
     std::string inPath{"in"};
-    std::string outPath{ };
+    std::string outPath{"out"};
     size_t blockSize{1u << 20};
-    size_t chunkSize{1u << 16};
 };
 
 CompressOptions parseOptions(int argc, char **argv)
@@ -89,19 +88,6 @@ CompressOptions parseOptions(int argc, char **argv)
 
                 break;
             }
-            case 'c':
-            {
-                size_t pos{ };
-                opts.chunkSize = std::stoul(optarg, &pos);
-
-                if (pos != std::string(optarg).size())
-                {
-                    spdlog::error("invalid chunk size value: {}", optarg);
-                    std::exit(1);
-                }
-
-                break;
-            }
             case 'h':
                 usage();
                 std::exit(0);
@@ -130,24 +116,54 @@ void compress(const CompressOptions &opts)
 
     const auto fileSize = std::filesystem::file_size(opts.inPath);
 
+    blosc2_cparams cparams = BLOSC2_CPARAMS_DEFAULTS;
+    cparams.typesize = 1;
+    cparams.compcode = BLOSC_BLOSCLZ;
+    cparams.clevel = 9;
+    cparams.nthreads = 1;
+
+    auto storage = blosc2_storage{ };
+    storage.cparams = &cparams;
+    storage.contiguous = true;
+    auto urlPath = opts.outPath;
+    storage.urlpath = urlPath.data();
+
+    auto *chunk = blosc2_schunk_new(&storage);
+    if (!chunk)
+        throw std::runtime_error("draft.compress: unable to allocate blosc chunk.");
+
+    auto map = util::ScopedMMap::map(
+        nullptr, opts.blockSize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
+    auto buf = map.uint8Data();
+
     for (size_t offset = 0; offset < fileSize; )
     {
         auto len = ::read(fd.get(), buf, opts.blockSize);
 
         if (len < 0)
-        {
-            spdlog::error("cuFileRead returned {}", len);
-            break;
-        }
+            throw std::system_error(errno, std::system_category(), "draft.compress: read");
 
         if (!len)
         {
-            spdlog::error("cuFileRead returned 0 - ending transfer.");
+            spdlog::error("read returned 0 - ending transfer.");
             break;
         }
 
+        if (auto stat = blosc2_schunk_append_buffer(chunk, buf, len); stat < 0)
+            throw std::runtime_error(fmt::format("blosc_schunk_append_buffer: {}", stat));
+
         offset += static_cast<size_t>(len);
     }
+
+    if (chunk)
+    {
+        if (chunk->cbytes)
+            spdlog::info("compression ratio: {:.1f}", 1.0 * chunk->nbytes / chunk->cbytes);
+
+        blosc2_schunk_free(chunk);
+    }
+
+    blosc_destroy();
 }
 
 } // namespace
