@@ -103,7 +103,7 @@ CompressOptions parseOptions(int argc, char **argv)
     if (!opts.nThreads)
         opts.nThreads = static_cast<unsigned>(get_nprocs());
 
-    if (subArgc - optind != 1)
+    if (subArgc - optind != 2)
     {
         usage();
         std::exit(1);
