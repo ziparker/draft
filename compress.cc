@@ -30,6 +30,7 @@
 #include <getopt.h>
 #include <libgen.h>
 #include <sys/stat.h>
+#include <sys/sysinfo.h>
 #include <unistd.h>
 
 #include <blosc2.h>
@@ -48,6 +49,8 @@ struct CompressOptions
     std::string inPath{"in"};
     std::string outPath{"out"};
     size_t blockSize{1u << 20};
+    unsigned level{5};
+    unsigned nThreads{0};
 };
 
 CompressOptions parseOptions(int argc, char **argv)
@@ -98,6 +101,9 @@ CompressOptions parseOptions(int argc, char **argv)
         }
     }
 
+    if (!opts.nThreads)
+        opts.nThreads = static_cast<unsigned>(get_nprocs());
+
     if (optind < subArgc)
     {
         spdlog::error("trailing args..");
@@ -119,8 +125,8 @@ void compress(const CompressOptions &opts)
     blosc2_cparams cparams = BLOSC2_CPARAMS_DEFAULTS;
     cparams.typesize = 1;
     cparams.compcode = BLOSC_BLOSCLZ;
-    cparams.clevel = 9;
-    cparams.nthreads = 1;
+    cparams.clevel = opts.level;
+    cparams.nthreads = opts.nThreads;
 
     auto storage = blosc2_storage{ };
     storage.cparams = &cparams;
@@ -166,6 +172,68 @@ void compress(const CompressOptions &opts)
     blosc_destroy();
 }
 
+void decompress(const CompressOptions &opts)
+{
+    auto outFd = util::ScopedFd{open(opts.outPath.c_str(), O_WRONLY | O_DIRECT | O_CREAT | O_TRUNC, 0664)};
+
+    if (outFd.get() < 0)
+        throw std::system_error(errno, std::system_category(), "draft.decompress: open");
+
+    blosc2_dparams dparams = BLOSC2_DPARAMS_DEFAULTS;
+    dparams.nthreads = opts.nThreads;
+
+    auto *chunk = blosc2_schunk_open(opts.inPath.c_str());
+    if (!chunk)
+    {
+        throw std::runtime_error(fmt::format(
+            "draft.decompress: unable to open blosc chunk file '{}'."
+            , opts.inPath));
+    }
+
+    auto map = util::ScopedMMap::map(
+        nullptr, opts.blockSize, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE, 0, 0);
+    auto buf = map.uint8Data();
+
+    size_t nChunks{ };
+
+    for (int i = 0; true; ++i)
+    {
+        auto len = blosc2_schunk_decompress_chunk(chunk, i, buf, opts.blockSize);
+
+        if (len < 0)
+        {
+            spdlog::error("decompress {}", len);
+            throw std::runtime_error(fmt::format("blosc_schunk_decompress_chunk: {}", len));
+        }
+
+        ++nChunks;
+
+        for (size_t offset = 0; offset < static_cast<size_t>(len); )
+        {
+            auto wlen = ::write(outFd.get(), buf + offset, static_cast<size_t>(len) - offset);
+
+            if (wlen < 0)
+                throw std::system_error(errno, std::system_category(), "draft.decompress write");
+
+            if (wlen == 0)
+            {
+                throw std::runtime_error(fmt::format(
+                    "draft.decompress: 0 sized write to output file '{}'"
+                    , opts.outPath));
+            }
+
+            offset += static_cast<size_t>(wlen);
+        }
+    }
+
+    spdlog::info("decompressed {} chunks.", nChunks);
+
+    if (chunk)
+        blosc2_schunk_free(chunk);
+
+    blosc_destroy();
+}
+
 } // namespace
 
 namespace draft::cmd {
@@ -178,6 +246,18 @@ int compress(int argc, char **argv)
     auto opts = parseOptions(argc, argv);
 
     compress(opts);
+
+    return 0;
+}
+
+int decompress(int argc, char **argv)
+{
+    if (argc < 2)
+        std::exit(1);
+
+    auto opts = parseOptions(argc, argv);
+
+    decompress(opts);
 
     return 0;
 }
