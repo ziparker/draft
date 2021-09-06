@@ -5,5 +5,5 @@ export CXX=clang++
 
 cmake -B exbuild -S external -DCMAKE_INSTALL_PREFIX=env -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=OFF &&
 make -C exbuild -j$(nproc) &&
-cmake -B build -S . -DCMAKE_INSTALL_PREFIX=install -DCMAKE_PREFIX_PATH=env -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=OFF &&
+cmake -B build -S . -DCMAKE_INSTALL_PREFIX=install -DCMAKE_PREFIX_PATH=env\;/usr/local/cuda-11.4/targets/x86_64-linux -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=OFF &&
 make -C build -j$(nproc)

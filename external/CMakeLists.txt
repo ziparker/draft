@@ -49,6 +49,13 @@ ExternalProject_Add(
         -DJSON_Install=ON)
 
 ExternalProject_Add(
+    nvcomp
+    GIT_REPOSITORY https://github.com/NVIDIA/nvcomp.git
+    GIT_TAG v2.0.2
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX})
+
+ExternalProject_Add(
     spdlog
     GIT_REPOSITORY https://github.com/gabime/spdlog.git
     GIT_TAG v1.8.5
