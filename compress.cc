@@ -38,6 +38,7 @@
 #include <spdlog/cfg/env.h>
 
 #include "Cmd.hh"
+#include "Util.hh"
 
 namespace {
 
@@ -45,9 +46,18 @@ using namespace draft;
 
 struct CompressOptions
 {
-    std::string path{ };
+    std::string inPath{ };
+    std::string outPath{ };
     size_t blockSize{1u << 22};
     size_t chunkSize{1u << 22};
+};
+
+struct CudaError: public std::runtime_error
+{
+    explicit CudaError(const cudaError_t &err):
+        std::runtime_error(cudaGetErrorString(err))
+    {
+    }
 };
 
 CompressOptions parseOptions(int argc, char **argv)
@@ -120,8 +130,48 @@ CompressOptions parseOptions(int argc, char **argv)
     return opts;
 }
 
-void compress(const std::string &input, const std::string &output)
+void compress(const CompressOptions &opts)
 {
+	CUfileDescr_t cfr_descr;
+	CUfileHandle_t cfr_handle;
+
+    auto fd = util::ScopedFd{open(opts.inPath.c_str(), O_RDONLY | O_DIRECT)};
+
+    if (fd.get() < 0)
+        throw std::system_error(errno, std::system_category(), "draft.compress: open");
+
+    auto desc = CUfileDescr_t{ };
+    desc.handle.fd = fd.get();
+    desc.type = CU_FILE_HANDLE_TYPE_OPAQUE_FD;
+
+    auto handle = CUfileHandle_t{ };
+
+    if (auto stat = cuFileHandleRegister(&handle, &desc);
+        stat.err != CU_FILE_SUCCESS)
+    {
+        throw std::runtime_error(fmt::format("draft.compress: unable to register file '{}'", opts.inPath));
+    }
+
+    cudaSetDevice(0);
+    if (auto err = cudaGetLastError(); err != cudaSuccess)
+        throw CudaError(err);
+
+    uint8_t *gpuInBuf{ };
+    uint8_t *gpuOutBuf{ };
+
+    cudaMalloc(&gpuInBuf, opts.blockSize);
+    if (auto err = cudaGetLastError(); err != cudaSuccess)
+        throw CudaError(err);
+
+    if (auto stat = cuFileBufRegister(gpuInBuf, opts.blockSize, 0);
+        stat.err != CU_FILE_SUCCESS)
+    {
+        throw std::runtime_error("draft.compress: unable to register file buffer.");
+    }
+
+    cuFileBufDeregister(gpuInBuf);
+    cudaFree(gpuInBuf);
+    //cudaFree(gpuOutBuf);
 }
 
 } // namespace
