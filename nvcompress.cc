@@ -32,7 +32,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <blosc2.h>
+#include <cuda.h>
+#include <cuda_runtime.h>
+#include <cufile.h>
 #include <spdlog/spdlog.h>
 #include <spdlog/cfg/env.h>
 
@@ -49,6 +51,14 @@ struct CompressOptions
     std::string outPath{ };
     size_t blockSize{1u << 20};
     size_t chunkSize{1u << 16};
+};
+
+struct CudaError: public std::runtime_error
+{
+    explicit CudaError(const cudaError_t &err):
+        std::runtime_error(cudaGetErrorString(err))
+    {
+    }
 };
 
 CompressOptions parseOptions(int argc, char **argv)
@@ -123,6 +133,9 @@ CompressOptions parseOptions(int argc, char **argv)
 
 void compress(const CompressOptions &opts)
 {
+	CUfileDescr_t cfr_descr;
+	CUfileHandle_t cfr_handle;
+
     auto fd = util::ScopedFd{open(opts.inPath.c_str(), O_RDONLY | O_DIRECT)};
 
     if (fd.get() < 0)
@@ -130,9 +143,38 @@ void compress(const CompressOptions &opts)
 
     const auto fileSize = std::filesystem::file_size(opts.inPath);
 
+    auto desc = CUfileDescr_t{ };
+    desc.handle.fd = fd.get();
+    desc.type = CU_FILE_HANDLE_TYPE_OPAQUE_FD;
+
+    auto handle = CUfileHandle_t{ };
+
+    if (auto stat = cuFileHandleRegister(&handle, &desc);
+        stat.err != CU_FILE_SUCCESS)
+    {
+        throw std::runtime_error(fmt::format("draft.compress: unable to register file '{}'", opts.inPath));
+    }
+
+    cudaSetDevice(0);
+    if (auto err = cudaGetLastError(); err != cudaSuccess)
+        throw CudaError(err);
+
+    uint8_t *gpuInBuf{ };
+    uint8_t *gpuOutBuf{ };
+
+    cudaMalloc(&gpuInBuf, opts.blockSize);
+    if (auto err = cudaGetLastError(); err != cudaSuccess)
+        throw CudaError(err);
+
+    if (auto stat = cuFileBufRegister(gpuInBuf, opts.blockSize, 0);
+        stat.err != CU_FILE_SUCCESS)
+    {
+        throw std::runtime_error("draft.compress: unable to register file buffer.");
+    }
+
     for (size_t offset = 0; offset < fileSize; )
     {
-        auto len = ::read(fd.get(), buf, opts.blockSize);
+        auto len = cuFileRead(handle, gpuInBuf, opts.blockSize, static_cast<off_t>(offset), 0);
 
         if (len < 0)
         {
@@ -148,13 +190,17 @@ void compress(const CompressOptions &opts)
 
         offset += static_cast<size_t>(len);
     }
+
+    cuFileBufDeregister(gpuInBuf);
+    cudaFree(gpuInBuf);
+    //cudaFree(gpuOutBuf);
 }
 
 } // namespace
 
 namespace draft::cmd {
 
-int compress(int argc, char **argv)
+int nvcompress(int argc, char **argv)
 {
     if (argc < 2)
         std::exit(1);

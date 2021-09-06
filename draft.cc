@@ -68,8 +68,18 @@ int dispatchSubcommand(int argc, char **argv)
     if (subProg == "recv")
         return cmd::recv(argc, argv);
 
+    if (subProg == "nvcompress")
+        return cmd::nvcompress(argc, argv);
+
+    #if DRAFT_HAVE_COMPRESS
     if (subProg == "compress")
         return cmd::compress(argc, argv);
+    #endif
+
+    #if DRAFT_HAVE_CUDA
+    if (subProg == "nvcompress")
+        return cmd::nvcompress(argc, argv);
+    #endif
 
     usage();
 
