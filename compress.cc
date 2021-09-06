@@ -23,6 +23,7 @@
  * SOFTWARE.
  */
 
+#include <filesystem>
 #include <iostream>
 
 #include <fcntl.h>
@@ -46,7 +47,7 @@ using namespace draft;
 
 struct CompressOptions
 {
-    std::string inPath{ };
+    std::string inPath{"in"};
     std::string outPath{ };
     size_t blockSize{1u << 22};
     size_t chunkSize{1u << 22};
@@ -140,6 +141,8 @@ void compress(const CompressOptions &opts)
     if (fd.get() < 0)
         throw std::system_error(errno, std::system_category(), "draft.compress: open");
 
+    const auto fileSize = std::filesystem::file_size(opts.inPath);
+
     auto desc = CUfileDescr_t{ };
     desc.handle.fd = fd.get();
     desc.type = CU_FILE_HANDLE_TYPE_OPAQUE_FD;
@@ -167,6 +170,17 @@ void compress(const CompressOptions &opts)
         stat.err != CU_FILE_SUCCESS)
     {
         throw std::runtime_error("draft.compress: unable to register file buffer.");
+    }
+
+    for (size_t offset = 0; offset < fileSize; )
+    {
+        if (auto stat = cuFileRead(handle, gpuInBuf, opts.blockSize, static_cast<off_t>(offset), 0) < 0)
+        {
+            spdlog::error("cuFileRead returned {}", stat);
+            break;
+        }
+
+        offset += opts.blockSize;
     }
 
     cuFileBufDeregister(gpuInBuf);
