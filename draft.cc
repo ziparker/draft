@@ -68,6 +68,9 @@ int dispatchSubcommand(int argc, char **argv)
     if (subProg == "recv")
         return cmd::recv(argc, argv);
 
+    if (subProg == "compress")
+        return cmd::compress(argc, argv);
+
     usage();
 
     return 1;

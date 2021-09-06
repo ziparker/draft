@@ -49,8 +49,8 @@ struct CompressOptions
 {
     std::string inPath{"in"};
     std::string outPath{ };
-    size_t blockSize{1u << 22};
-    size_t chunkSize{1u << 22};
+    size_t blockSize{1u << 20};
+    size_t chunkSize{1u << 16};
 };
 
 struct CudaError: public std::runtime_error
@@ -174,13 +174,21 @@ void compress(const CompressOptions &opts)
 
     for (size_t offset = 0; offset < fileSize; )
     {
-        if (auto stat = cuFileRead(handle, gpuInBuf, opts.blockSize, static_cast<off_t>(offset), 0) < 0)
+        auto len = cuFileRead(handle, gpuInBuf, opts.blockSize, static_cast<off_t>(offset), 0);
+
+        if (len < 0)
         {
-            spdlog::error("cuFileRead returned {}", stat);
+            spdlog::error("cuFileRead returned {}", len);
             break;
         }
 
-        offset += opts.blockSize;
+        if (!len)
+        {
+            spdlog::error("cuFileRead returned 0 - ending transfer.");
+            break;
+        }
+
+        offset += static_cast<size_t>(len);
     }
 
     cuFileBufDeregister(gpuInBuf);
@@ -192,14 +200,14 @@ void compress(const CompressOptions &opts)
 
 namespace draft::cmd {
 
-int send(int argc, char **argv)
+int compress(int argc, char **argv)
 {
-    auto opts = parseOptions(argc, argv);
-
     if (argc < 2)
         std::exit(1);
 
-    
+    auto opts = parseOptions(argc, argv);
+
+    compress(opts);
 
     return 0;
 }
