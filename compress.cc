@@ -199,6 +199,7 @@ void decompress(const CompressOptions &opts)
     auto buf = map.uint8Data();
 
     size_t nChunks{ };
+    off_t offset{ };
 
     for (int i = 0; true; ++i)
     {
@@ -206,29 +207,37 @@ void decompress(const CompressOptions &opts)
 
         if (len < 0)
         {
+            if (len == BLOSC2_ERROR_INVALID_PARAM)
+                break;
+
             spdlog::error("decompress {}", len);
             throw std::runtime_error(fmt::format("blosc_schunk_decompress_chunk: {}", len));
         }
 
         ++nChunks;
 
-        for (size_t offset = 0; offset < static_cast<size_t>(len); )
+        const auto chunkSz = static_cast<size_t>(len);
+
+        if (posix_fallocate(outFd.get(), offset, static_cast<off_t>(util::roundBlockSize(chunkSz))))
+            throw std::system_error(errno, std::system_category(), "posix_fallocate");
+
+        auto wlen = ::pwrite(outFd.get(), buf, util::roundBlockSize(chunkSz), offset);
+
+        if (wlen < 0)
+            throw std::system_error(errno, std::system_category(), "draft.decompress write");
+
+        if (wlen < len)
         {
-            auto wlen = ::write(outFd.get(), buf + offset, static_cast<size_t>(len) - offset);
-
-            if (wlen < 0)
-                throw std::system_error(errno, std::system_category(), "draft.decompress write");
-
-            if (wlen == 0)
-            {
-                throw std::runtime_error(fmt::format(
-                    "draft.decompress: 0 sized write to output file '{}'"
-                    , opts.outPath));
-            }
-
-            offset += static_cast<size_t>(wlen);
+            throw std::runtime_error(fmt::format(
+                "draft.decompress: short write to output file '{}'"
+                , opts.outPath));
         }
+
+        offset += len;
     }
+
+    if (ftruncate(outFd.get(), offset))
+        spdlog::warn("draft.decompress: unable to trim output file to length {}", offset);
 
     spdlog::info("decompressed {} chunks.", nChunks);
 
