@@ -55,10 +55,11 @@ struct CompressOptions
 
 CompressOptions parseOptions(int argc, char **argv)
 {
-    constexpr const char *shortOpts = "b:h";
+    constexpr const char *shortOpts = "b:ht:";
     constexpr const struct option longOpts[] = {
         {"block-size", required_argument, nullptr, 'b'},
         {"help", no_argument, nullptr, 'h'},
+        {"threads", no_argument, nullptr, 't'},
         {nullptr, 0, nullptr, 0}
     };
 
@@ -67,7 +68,7 @@ CompressOptions parseOptions(int argc, char **argv)
 
     const auto usage = [argv] {
             std::cout << fmt::format(
-                "usage: {} decompress [-b <block size>][-h] <input> <output>\n"
+                "usage: {} decompress [-b <block size>][-h][-t <threads>] <input> <output>\n"
                 , ::basename(argv[0]));
         };
 
@@ -93,6 +94,9 @@ CompressOptions parseOptions(int argc, char **argv)
             case 'h':
                 usage();
                 std::exit(0);
+            case 't':
+                opts.nThreads = util::parseSize(optarg);
+                break;
             case '?':
                 std::exit(1);
             default:
