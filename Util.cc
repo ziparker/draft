@@ -255,7 +255,7 @@ void MmapAgent::initNetwork(const AgentConfig &conf)
         poll_.add(fd.get(), EPOLLOUT);
 
         const auto rawFd = fd.get();
-        auto info = FdInfo {std::move(fd), 10000};
+        auto info = FdInfo{std::move(fd), 10000};
 
         fdMap_.insert({rawFd, std::move(info)});
     }

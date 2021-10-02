@@ -27,6 +27,7 @@
 #define __DRAFT_UTIL_HH__
 
 #include <algorithm>
+#include <condition_variable>
 #include <cstring>
 #include <filesystem>
 #include <memory>
@@ -299,9 +300,14 @@ public:
         auto idx = free_;
 
         if (free_ != End)
+        {
             free_ = list_[free_];
+        }
         else
+        {
             spdlog::error("hit end of free list.");
+            return ~0u;
+        }
 
         return idx;
     }
@@ -374,6 +380,8 @@ public:
 
         size_t freeIndex() const noexcept { return freeIdx_; }
 
+        explicit operator bool() const noexcept { return data_; }
+
     private:
         friend class BufferPool;
 
@@ -403,6 +411,9 @@ public:
     Buffer get()
     {
         auto idx = freeList_.get();
+
+        if (idx == ~0u)
+            return { };
 
         return {
             *this,
@@ -900,6 +911,78 @@ private:
 };
 
 ////////////////////////////////////////////////////////////////////////////////
+// AsyncHelper
+
+class AsyncHelper
+{
+public:
+    using Action = std::function<int()>;
+
+    AsyncHelper():
+        thd_([this]{ run(); })
+    {
+    }
+
+    ~AsyncHelper()
+    {
+        try {
+            done_ = true;
+            thd_.join();
+        } catch (...) { }
+    }
+
+    int exec(Action a)
+    {
+        {
+            Lock lk(mtx_);
+            action_ = std::move(a);
+            ready_ = true;
+        }
+
+        cond_.notify_one();
+
+        return 0;
+    }
+
+    void cancel()
+    {
+        done_ = true;
+    }
+
+private:
+    using Lock = std::unique_lock<std::mutex>;
+
+    void run()
+    {
+        using namespace std::chrono_literals;
+
+        while (!done_)
+        {
+            Lock lk(mtx_);
+            if (!cond_.wait_for(lk, 200ms, [this]{ return done_ || ready_; }))
+                continue;
+
+            if (done_)
+                break;
+
+            if (action_)
+                action_();
+
+            action_ = { };
+            ready_ = false;
+        }
+    }
+
+    Action action_;
+    std::mutex mtx_;
+    std::condition_variable cond_;
+    bool ready_{ };
+    bool done_{ };
+
+    std::thread thd_;
+};
+
+////////////////////////////////////////////////////////////////////////////////
 // Agent
 
 struct NetworkTarget
@@ -963,6 +1046,9 @@ public:
                 const auto xferPayloadLen = std::min(fileLen - fileOffset, payloadLen);
 
                 auto buf = pool_.get();
+                if (!buf)
+                    continue;
+
                 auto xfer = initReadXfer(std::move(buf), fd.get(), fileOffset, xferPayloadLen, fileId);
 
                 spdlog::trace("offset: {} {} {} {}"
@@ -1018,7 +1104,20 @@ private:
 
     struct FdInfo
     {
+        FdInfo():
+            FdInfo(ScopedFd{ })
+        {
+        }
+
+        explicit FdInfo(ScopedFd fd, unsigned speed = 1000):
+            fd(std::move(fd)),
+            asyncHelper(std::make_unique<AsyncHelper>()),
+            speed(speed)
+        {
+        }
+
         ScopedFd fd{ };
+        std::unique_ptr<AsyncHelper> asyncHelper{ };
         unsigned speed{1000};
     };
 
@@ -1121,7 +1220,7 @@ private:
         return 0;
     }
 
-    int syncWrite(std::unique_ptr<TransferState> xfer)
+    int syncWrite(TransferState *xfer)
     {
         int stat{ };
         const auto xferLen = xfer->xferLen;
@@ -1164,6 +1263,30 @@ private:
         }
 
         return stat;
+    }
+
+    int asyncWrite(std::unique_ptr<TransferState> xfer)
+    {
+        auto iter = fdMap_.find(xfer->fd);
+
+        if (iter == end(fdMap_))
+        {
+            spdlog::error("MMapAgent: unable to find fd info for descriptor {}"
+                , xfer->fd);
+
+            return -1;
+        }
+
+        auto &fdInfo = iter->second;
+
+        // TODO: move syncWrite & advanceXfer out of class, move xfer directly
+        // to helper, avoid std::function.
+        fdInfo.asyncHelper->exec([this, x = std::shared_ptr<TransferState>(std::move(xfer))] {
+                spdlog::debug("async net write -> {}", x->fd);
+                return syncWrite(x.get());
+            });
+
+        return 0;
     }
 
     void handleCqes(size_t required = 1)
@@ -1280,7 +1403,7 @@ private:
                     continue;
                 }
 
-                syncWrite(std::move(xfer));
+                asyncWrite(std::move(xfer));
             }
 
             --sqeCount_;
