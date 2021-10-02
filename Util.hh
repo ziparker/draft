@@ -1047,7 +1047,11 @@ public:
 
                 auto buf = pool_.get();
                 if (!buf)
+                {
+                    // TODO: add blocking get for pool.
+                    std::this_thread::yield();
                     continue;
+                }
 
                 auto xfer = initReadXfer(std::move(buf), fd.get(), fileOffset, xferPayloadLen, fileId);
 
