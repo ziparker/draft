@@ -936,13 +936,25 @@ public:
     {
         {
             Lock lk(mtx_);
-            action_ = std::move(a);
-            ready_ = true;
+            actions_.push_back(std::move(a));
         }
 
         cond_.notify_one();
 
         return 0;
+    }
+
+    void finish()
+    {
+        cancel();
+
+        try {
+            thd_.join();
+        } catch (...) {
+        }
+
+        for (const auto &action : actions_)
+            action();
     }
 
     void cancel()
@@ -959,25 +971,28 @@ private:
 
         while (!done_)
         {
-            Lock lk(mtx_);
-            if (!cond_.wait_for(lk, 200ms, [this]{ return done_ || ready_; }))
-                continue;
+            auto action = Action{ };
 
-            if (done_)
-                break;
+            {
+                Lock lk(mtx_);
+                if (!cond_.wait_for(lk, 200ms, [this]{ return done_ || !actions_.empty(); }))
+                    continue;
 
-            if (action_)
-                action_();
+                if (done_)
+                    break;
 
-            action_ = { };
-            ready_ = false;
+                action = std::move(actions_.back());
+                actions_.pop_back();
+            }
+
+            if (action)
+                action();
         }
     }
 
-    Action action_;
+    std::vector<Action> actions_;
     std::mutex mtx_;
     std::condition_variable cond_;
-    bool ready_{ };
     bool done_{ };
 
     std::thread thd_;
@@ -1082,6 +1097,9 @@ public:
         auto count = sqeCount_;
 
         handleCqes(sqeCount_);
+
+        for (auto &[fd, info] : fdMap_)
+            info.asyncHelper->finish();
 
         spdlog::info("drain {} -> {}", count, sqeCount_);
         spdlog::info("xferred {} chunk(s), {} bytes", chunkCount, chunkXfer);
