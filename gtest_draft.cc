@@ -30,12 +30,13 @@
 ////////////////////////////////////////////////////////////////////////////////
 // Util
 
-using namespace draft;
+using namespace draft::util;
+
+////////////////////////////////////////////////////////////////////////////////
+// ScopedFd
 
 TEST(scoped_fd, ctor)
 {
-    using namespace draft::util;
-
     auto fd = ScopedFd{ };
     EXPECT_EQ(fd.get(), -1);
 
@@ -48,8 +49,6 @@ TEST(scoped_fd, ctor)
 
 TEST(scoped_mmap, ctor)
 {
-    using namespace draft::util;
-
     auto map = ScopedMMap::map(nullptr, 4096, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     EXPECT_NE(map.data(), nullptr);
     EXPECT_EQ(map.size(), 4096);
@@ -59,8 +58,6 @@ TEST(scoped_mmap, ctor)
 
 TEST(scoped_mmap, unmap)
 {
-    using namespace draft::util;
-
     auto map = ScopedMMap::map(nullptr, 4096, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     ASSERT_NE(map.data(), nullptr);
 
@@ -70,4 +67,30 @@ TEST(scoped_mmap, unmap)
     EXPECT_EQ(0, map.size());
     EXPECT_FALSE(map.offsetValid(0));
     EXPECT_FALSE(map.offsetValid(4096-1));
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// FreeList
+
+TEST(free_list, get)
+{
+    auto list = FreeList{10};
+
+    for (size_t i = 0u; i < 10u; ++i)
+        EXPECT_EQ(i, list.get());
+
+    EXPECT_EQ(FreeList::End, list.get());
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// WaitQueue
+
+TEST(wait_q, put_get)
+{
+    auto q = WaitQueue<int>{ };
+    q.put(42);
+
+    auto v = q.get();
+    ASSERT_TRUE(v);
+    EXPECT_EQ(*v, 42);
 }

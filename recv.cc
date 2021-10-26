@@ -56,8 +56,10 @@ struct Options
 {
     std::vector<draft::util::NetworkTarget> targets{ };
     draft::util::NetworkTarget service{"localhost", 2020};
-    size_t rxBufSize{1u << 16};
+    size_t rxBufSize{1u << 23};
+    size_t rxRingPwr{5};
     bool noFile{ };
+    bool enableDio{ };
 };
 
 size_t parseSize(const std::string &arg)
@@ -76,9 +78,11 @@ size_t parseSize(const std::string &arg)
 
 Options parseOpts(int argc, char **argv)
 {
-    constexpr const char *shortOpts = "b:hns:t:";
+    constexpr const char *shortOpts = "b:dhi:ns:t:";
     constexpr const struct option longOpts[] = {
+        {"dio", no_argument, nullptr, 'd'},
         {"help", no_argument, nullptr, 'h'},
+        {"iodepth", required_argument, nullptr, 'i'},
         {"nofile", no_argument, nullptr, 'n'},
         {"rxbuf", required_argument, nullptr, 'b'},
         {"service", required_argument, nullptr, 's'},
@@ -91,7 +95,7 @@ Options parseOpts(int argc, char **argv)
 
     const auto usage = [argv] {
             std::cerr << fmt::format(
-                "usage: {} recv [-b <rx buf size>][-h][-n][-s <server[:port]>] -t target [-t target ...]\n"
+                "usage: {} recv [-b <rx buf size>][-d][-h][-i <depth pwr>][-n][-s <server[:port]>] -t target [-t target ...]\n"
                 , ::basename(argv[0]));
         };
 
@@ -104,9 +108,15 @@ Options parseOpts(int argc, char **argv)
             case 'b':
                 opts.rxBufSize = parseSize(optarg);
                 break;
+            case 'd':
+                opts.enableDio = true;
+                break;
             case 'h':
                 usage();
                 std::exit(0);
+            case 'i':
+                opts.rxRingPwr = draft::util::parseSize(optarg);
+                break;
             case 'n':
                 opts.noFile = true;
                 break;
@@ -193,11 +203,11 @@ util::TransferRequest awaitTransferRequest(const Options &opts)
     const auto clientFdRaw = clientFd.get();
     auto rx = util::Receiver{
         std::move(clientFd),
-        [&reqBuf, &haveReq](util::Receiver &, const wire::ChunkHeader &header) {
+        [&reqBuf, &haveReq](util::Receiver &, const util::MessageBuffer &buf) {
             spdlog::info("req chunk received.");
 
-            reqBuf.resize(header.payloadLength);
-            std::memcpy(reqBuf.data(), &header + 1, reqBuf.size());
+            reqBuf.resize(buf.payloadLength);
+            std::memcpy(reqBuf.data(), buf.buf->data(), buf.payloadLength);
             haveReq = true;
         }};
 
@@ -221,41 +231,37 @@ void awaitTransfer(const Options &opts)
     // bind receipt ports so we're ready for data immediately after handling
     // the transfer request.
     auto serviceFds = bindTargets(opts.targets);
-    auto rxMgr = draft::util::ReceiverManager(std::move(serviceFds), opts.rxBufSize);
+
+    auto rxMgr = draft::util::ReceiverManager(
+        std::move(serviceFds), opts.rxBufSize, opts.rxRingPwr);
 
     // wait for a transfer request.
     auto req = awaitTransferRequest(opts);
     req.config.root = ".";
+    req.config.ringPwr = opts.rxRingPwr;
+    req.config.enableDio = opts.enableDio;
 
     spdlog::info("creating target files.");
     util::createTargetFiles(".", req.config.fileInfo);
 
-    auto fileAgent = std::optional<draft::util::FileAgent>{ };
+    auto fileAgent = std::unique_ptr<draft::util::FileAgent>{ };
 
     if (!opts.noFile)
-        fileAgent = draft::util::FileAgent{std::move(req.config)};
+        fileAgent = std::make_unique<draft::util::FileAgent>(req.config);
 
     rxMgr.setChunkCallback(
-        [&fileAgent](const wire::ChunkHeader &header, draft::util::Buffer buf) {
-            spdlog::debug("write chunk: {} offset {}"
-                , header.fileId
-                , header.fileOffset);
-
+        [&fileAgent](int, const util::MessageBuffer &buf) {
             if (fileAgent)
-                fileAgent->updateFile(header.fileId, header.fileOffset, std::move(buf));
+                fileAgent->updateFile(std::move(buf));
         });
 
     spdlog::info("starting transfer.");
 
-    for (auto haveRx = false; !done_; )
+    while (!done_)
     {
         rxMgr.runOnce(100);
 
-        if (!haveRx)
-        {
-            haveRx = rxMgr.haveReceivers();
-        }
-        else if (!rxMgr.haveReceivers())
+        if (rxMgr.finished())
         {
             spdlog::info("transmission connections have closed - leaving.");
             break;
@@ -263,7 +269,12 @@ void awaitTransfer(const Options &opts)
     }
 
     if (fileAgent)
+    {
         fileAgent->drain();
+    }
+
+    rxMgr.setChunkCallback({ });
+    rxMgr.cancel();
 
     spdlog::info("rx'd {}", rxMgr.chunkCount());
 }

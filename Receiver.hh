@@ -27,6 +27,7 @@
 #ifndef __DRAFT_RECEIVER_HH__
 #define __DRAFT_RECEIVER_HH__
 
+#include <deque>
 #include <functional>
 #include <unordered_map>
 #include <vector>
@@ -43,34 +44,27 @@ namespace draft::util {
 class Receiver
 {
 public:
-    using ChunkCallback = std::function<void(Receiver &, const wire::ChunkHeader &)>;
+    using ChunkCallback = std::function<void(Receiver &, const MessageBuffer &)>;
 
-    Receiver(ScopedFd fd, ChunkCallback &&cb, size_t rxBufSize = 1u << 16):
+    Receiver(ScopedFd fd, ChunkCallback &&cb, size_t rxBufSize = 1u << 16, size_t rxRingPwr = 5, size_t chunkAlignment = 0):
         cb_(std::move(cb)),
-        fd_(std::move(fd))
+        fd_(std::move(fd)),
+        chunkAlignment_(chunkAlignment)
     {
-        buf_.resize(rxBufSize);
+        pool_ = BufferPool::make(rxBufSize, 1u << rxRingPwr);
+        buf_ = std::make_shared<BufferPool::Buffer>(pool_->get());
+        spdlog::info("opened rx on fd {}", fd_.get());
     }
 
     int runOnce()
     {
-        auto len = ::recv(fd_.get(), buf_.data() + offset_, buf_.size() - offset_, 0);
-
-        if (len < 0)
+        if (!chunk_)
         {
-            if (errno == EAGAIN || errno == EINTR)
-                return -errno;
-
-            throw std::system_error(errno, std::system_category(), "Receiver::recv");
+            if (auto stat = receiveSegmentHeader(); stat <= 0)
+                return stat;
         }
 
-        if (!len)
-            return -EOF;
-
-        spdlog::info("handle {} bytes @ offset {}", len, offset_);
-        handleData({buf_.data(), offset_ + static_cast<size_t>(len)});
-
-        return 0;
+        return receiveSegmentData();
     }
 
     int fd() const
@@ -85,70 +79,102 @@ private:
         size_t size{ };
     };
 
-    void handleData(BufferView view)
+    int receiveSegmentHeader()
     {
-        auto [offset, found] = findChunk(view);
+        auto len = ::recv(fd_.get(), buf_->uint8Data() + offset_, sizeof(wire::ChunkHeader) - offset_, 0);
 
-        if (!found)
+        if (len < 0)
         {
-            std::memmove(buf_.data(), view.data + offset, view.size - offset);
-            offset_ = view.size - offset;
-            spdlog::warn("no header found, offset set to {}", offset_);
-            return;
+            if (errno == EAGAIN || errno == EINTR)
+                return -errno;
+
+            throw std::system_error(errno, std::system_category(), "Receiver::recv");
         }
 
-        if (offset)
-            spdlog::warn("Receiver: found chunk magic at offset {}", offset);
+        if (!len)
+            return -EOF;
 
-        view.data += offset;
-        view.size -= offset;
-
-        while (view.size > sizeof(wire::ChunkHeader))
+        if (offset_ + static_cast<size_t>(len) < sizeof(wire::ChunkHeader))
         {
-            const auto size = view.size;
+            offset_ += static_cast<size_t>(len);
+            return 0;
+        }
 
-            spdlog::info("process offset {} len {}"
-                , reinterpret_cast<uintptr_t>(view.data) - reinterpret_cast<uintptr_t>(buf_.data())
-                , view.size);
+        auto chunk = reinterpret_cast<const wire::ChunkHeader *>(buf_->data());
 
-            view = processChunk(view);
-            spdlog::info("  -> {}", view.size);
+        if (!chunkValid(*chunk))
+            throw std::runtime_error("rx'd invalid segment header.");
 
-            if (size == view.size)
+        chunk_ = *chunk;
+        fileOffset_ = chunk_->fileOffset;
+        offset_ = 0;
+
+        spdlog::info("start chunk {}-{} range [{}, {})"
+            , fd_.get(), chunk_->fileId
+            , chunk_->fileOffset, chunk_->fileOffset + chunk_->payloadLength);
+
+        return 1;
+    }
+
+    int receiveSegmentData()
+    {
+        const auto maxRx = std::min(
+            buf_->size() - offset_,
+            chunk_->fileOffset + chunk_->payloadLength - fileOffset_);
+
+        auto len = ::recv(fd_.get(), buf_->uint8Data() + offset_, maxRx, 0);
+
+        if (len < 0)
+        {
+            if (errno == EAGAIN || errno == EINTR)
+                return -errno;
+
+            throw std::system_error(errno, std::system_category(), "Receiver::recv");
+        }
+
+        if (!len)
+            return -EOF;
+
+        size_t alignedLen = offset_ + static_cast<size_t>(len);
+        size_t diffLen{ };
+
+        if (chunkAlignment_)
+        {
+            if (alignedLen >= chunkAlignment_)
             {
-                auto header = reinterpret_cast<const wire::ChunkHeader *>(view.data);
+                if (((offset_ + static_cast<size_t>(len)) & (chunkAlignment_ - 1)))
+                {
+                    const auto newOffset = offset_ + static_cast<size_t>(len);
+                    alignedLen = newOffset & ~(chunkAlignment_ - 1);
+                    diffLen = newOffset - alignedLen;
+                }
+            }
+            else if (chunk_->fileOffset + chunk_->payloadLength - fileOffset_ > chunkAlignment_)
+            {
+                spdlog::debug("skipping write cycle for {} bytes, with {} remaining."
+                    , alignedLen
+                    , chunk_->fileOffset + chunk_->payloadLength - fileOffset_);
 
-                spdlog::info("incomplete frame for {} - waiting for {}/{}"
-                    , header->fileId
-                    , sizeof(*header) + header->payloadLength - view.size
-                    , sizeof(*header) + header->payloadLength);
-
-                break;
+                diffLen = alignedLen;
+                alignedLen = 0;
             }
         }
 
-        if (view.size)
-        {
-            spdlog::info("Receiver: shift {}", view.size);
-            std::memmove(buf_.data(), view.data, view.size);
-        }
+        spdlog::trace("{}-{}: {} bytes -> offset {}"
+            , fd_.get(), chunk_->fileId, alignedLen, fileOffset_);
 
-        offset_ = view.size;
-    }
+        if (alignedLen)
+            processChunk(buf_, alignedLen);
 
-    std::pair<size_t, bool> findChunk(const BufferView &view)
-    {
-        size_t offset = 0;
+        auto buf = std::make_shared<BufferPool::Buffer>(pool_->get());
 
-        for ( ; view.size - offset >= 8; ++offset)
-        {
-            auto magic = reinterpret_cast<const uint64_t *>(view.data + offset);
+        if (diffLen)
+            memcpy(buf->data(), buf_->uint8Data() + alignedLen, diffLen);
 
-            if ((*magic & wire::ChunkHeader::MagicMask) == wire::ChunkHeader::Magic)
-                return {offset, true};
-        }
+        buf_ = std::move(buf);
+        offset_ = diffLen;
 
-        return {offset, false};
+        return 0;
     }
 
     bool chunkValid(const wire::ChunkHeader &header) const noexcept
@@ -156,74 +182,99 @@ private:
         return header.magic == wire::ChunkHeader::Magic;
     }
 
-    BufferView processChunk(BufferView view)
+    void processChunk(const std::shared_ptr<BufferPool::Buffer> &buf, size_t len)
     {
-        auto chunk = reinterpret_cast<const wire::ChunkHeader *>(view.data);
-
-        if (!chunkValid(*chunk))
+        if (cb_)
         {
-            spdlog::warn("invalid chunk at {} buf offset {} ({:#x})"
-                , static_cast<const void *>(view.data)
-                , reinterpret_cast<uintptr_t>(view.data) - reinterpret_cast<uintptr_t>(buf_.data())
-                , reinterpret_cast<uintptr_t>(view.data) - reinterpret_cast<uintptr_t>(buf_.data()));
+            auto msg = MessageBuffer {
+                std::move(buf),
+                fileOffset_,
+                len,
+                chunk_->fileId
+            };
 
-            #if 0
-            *view.data = 0xff;
-            spdlog::warn(" -> buf data: {}", spdlog::to_hex(begin(buf_), end(buf_)));
-
-            std::exit(42);
-            #else
-            *view.data = 0xff;
-            spdlog::warn(" -> buf data: {}", spdlog::to_hex(view.data, view.data + view.size));
-            #endif
-
-            ++view.data;
-            --view.size;
-            return view;
+            cb_(*this, std::move(msg));
         }
 
-        auto chunkLen = sizeof(*chunk) + chunk->payloadLength;
+        fileOffset_ += len;
 
-        spdlog::info("  chunk len: {}", chunkLen);
-        spdlog::info("  view len: {}", view.size);
+        if (fileOffset_ == chunk_->fileOffset + chunk_->payloadLength)
+        {
+            spdlog::info("{} finished receiving segment for file id {}: {}/{}"
+                , fd_.get()
+                , chunk_->fileId
+                , fileOffset_
+                , chunk_->fileOffset + chunk_->payloadLength);
 
-        if (chunkLen > view.size)
-            return view;
-
-        view.data += chunkLen;
-        view.size -= chunkLen;
-
-        if (cb_)
-            cb_(*this, *chunk);
-
-        return view;
+            fileOffset_ = 0;
+            chunk_ = { };
+        }
     }
 
     ChunkCallback cb_;
+    std::optional<wire::ChunkHeader> chunk_;
+    std::shared_ptr<BufferPool> pool_;
+    std::shared_ptr<BufferPool::Buffer> buf_;
     ScopedFd fd_;
-    std::vector<uint8_t> buf_;
     size_t offset_{ };
+    size_t fileOffset_{ };
+    size_t chunkAlignment_{ };
 };
 
 class ReceiverManager
 {
 public:
-    using ChunkCallback = std::function<void(const wire::ChunkHeader &, Buffer)>;
+    using ChunkCallback = std::function<void(int, const MessageBuffer &)>;
 
-    explicit ReceiverManager(std::vector<ScopedFd> fds, size_t rxBufSize):
-        rxBufSize_(rxBufSize)
+    explicit ReceiverManager(std::vector<ScopedFd> fds, size_t rxBufSize, size_t rxRingPwr):
+        rxBufSize_(rxBufSize),
+        rxRingPwr_(rxRingPwr)
     {
         initService(std::move(fds));
     }
 
+    ~ReceiverManager() noexcept
+    {
+        cancel();
+    }
+
     void runOnce(int tmoMs)
     {
+        using namespace std::chrono_literals;
+
         pollSet_.waitOnce(tmoMs);
+
+        auto rmList = std::vector<int>{ };
+        for (auto &fdInfo : receivers_)
+        {
+            if (!fdInfo.second.result.valid())
+                continue;
+
+            if (fdInfo.second.result.wait_for(1ms) == std::future_status::ready)
+            {
+                rmList.push_back(fdInfo.first);
+                spdlog::info("reaping rx for fd {}", fdInfo.first);
+                rxReaped_ = true;
+            }
+        }
+
+        for (auto fd : rmList)
+            receivers_.erase(fd);
+    }
+
+    void cancel() noexcept
+    {
+        done_ = true;
     }
 
     bool haveReceivers() const noexcept
     {
         return !receivers_.empty();
+    }
+
+    bool finished() const noexcept
+    {
+        return rxReaped_ && !haveReceivers();
     }
 
     size_t chunkCount() const noexcept
@@ -237,6 +288,11 @@ public:
     }
 
 private:
+    struct RxInfo
+    {
+        std::future<void> result{ };
+    };
+
     void initService(std::vector<ScopedFd> serviceFds)
     {
         for (const auto &serviceFd : serviceFds)
@@ -260,15 +316,27 @@ private:
             [this](auto &rx, const auto &header) {
                 handleChunk(rx, header);
             },
-            rxBufSize_);
-
-        pollSet_.add(rx->fd(), EPOLLIN,
-            [this, rxp = rx.get()](unsigned) {
-                return receiveChunk(*rxp);
-            });
+            rxBufSize_,
+            rxRingPwr_,
+            BlockSize);
 
         auto rxFd = rx->fd();
-        receivers_.insert({rxFd, std::move(rx)});
+        receivers_.insert({rxFd,
+            RxInfo{
+                std::async(
+                    std::launch::async,
+                    [this, rx = std::move(rx)] {
+                        runReceiver(*rx);
+                    })
+            }});
+    }
+
+    void runReceiver(draft::util::Receiver &rx)
+    {
+        while (!done_ && receiveChunk(rx))
+            ;
+
+        spdlog::info("finished rx for fd {}", rx.fd());
     }
 
     bool receiveChunk(Receiver &rx)
@@ -285,7 +353,6 @@ private:
                 return true;
             case -EOF:
                 spdlog::info("connection {} closed.", rx.fd());
-                receivers_.erase(rx.fd());
                 return false;
             default:
                 break;
@@ -297,28 +364,23 @@ private:
         return true;
     }
 
-    void handleChunk(Receiver &rx, const wire::ChunkHeader &header)
+    void handleChunk(Receiver &rx, const MessageBuffer &buf)
     {
-        spdlog::info("connection {} cb magic: {} {}"
-            , rx.fd(), header.fileId, header.magic);
-
         if (cb_)
-        {
-            auto buf = Buffer{ };
-            buf.resize(header.payloadLength);
-            std::memcpy(buf.data(), &header + 1, buf.size());
-            cb_(header, std::move(buf));
-        }
+            cb_(rx.fd(), std::move(buf));
 
         ++count_;
     }
 
     ChunkCallback cb_;
     std::vector<ScopedFd> serviceFds_;
-    std::unordered_map<int, std::unique_ptr<Receiver>> receivers_;
+    std::unordered_map<int, RxInfo> receivers_;
     PollSet pollSet_;
     size_t rxBufSize_{1u << 16};
+    size_t rxRingPwr_{5};
     size_t count_{ };
+    bool done_{ };
+    bool rxReaped_{ };
 };
 
 }

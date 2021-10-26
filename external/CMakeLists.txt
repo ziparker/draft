@@ -30,12 +30,16 @@ project(draft_external VERSION 0.0.1)
 include(ExternalProject)
 
 ExternalProject_Add(
-    liburing
-    GIT_REPOSITORY https://github.com/axboe/liburing.git
-    GIT_TAG liburing-2.0
-    CONFIGURE_COMMAND
-        <SOURCE_DIR>/configure --prefix=${CMAKE_INSTALL_PREFIX}
-    BUILD_IN_SOURCE ON)
+    c-blosc2
+    GIT_REPOSITORY https://github.com/Blosc/c-blosc2.git
+    GIT_TAG v2.0.3
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
+        -DBUILD_TESTS=OFF
+        -DBUILD_FUZZERS=OFF
+        -DBUILD_BENCHMARKS=OFF
+        -DBUILD_EXAMPLES=OFF
+        -DBUILD_PLUGINS=OFF)
 
 ExternalProject_Add(
     nlohmann_json
@@ -47,6 +51,15 @@ ExternalProject_Add(
         -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
         -DJSON_BuildTests=OFF
         -DJSON_Install=ON)
+
+if (DRAFT_ENABLE_CUDA)
+    ExternalProject_Add(
+        nvcomp
+        GIT_REPOSITORY https://github.com/NVIDIA/nvcomp.git
+        GIT_TAG v2.0.2
+        CMAKE_ARGS
+            -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX})
+endif ()
 
 ExternalProject_Add(
     spdlog

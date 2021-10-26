@@ -51,15 +51,16 @@ struct SendOptions
     util::NetworkTarget service{"localhost", 2020};
     std::string path{ };
     std::string suffix{ };
-    unsigned mtu{9000};
+    size_t blockSize{1u << 22};
+    size_t txRingPwr{5u};
 };
 
 SendOptions parseOptions(int argc, char **argv)
 {
-    constexpr const char *shortOpts = "hm:p:s:S:t:";
+    constexpr const char *shortOpts = "b:hp:s:S:t:";
     constexpr const struct option longOpts[] = {
+        {"block-size", required_argument, nullptr, 'b'},
         {"help", no_argument, nullptr, 'h'},
-        {"mtu", required_argument, nullptr, 'm'},
         {"path", required_argument, nullptr, 'p'},
         {"service", required_argument, nullptr, 's'},
         {"suffix", required_argument, nullptr, 'S'},
@@ -72,7 +73,7 @@ SendOptions parseOptions(int argc, char **argv)
 
     const auto usage = [argv] {
             std::cout << fmt::format(
-                "usage: {} send [-h][-m <mtu>][-p <path>][-s <server[:port]>][-S suffix] -t ip[:port] [-t ip[:port] -t ...]\n"
+                "usage: {} send [-b <block size>][-h][-p <path>][-s <server[:port]>][-S suffix] -t ip[:port] [-t ip[:port] -t ...]\n"
                 , ::basename(argv[0]));
         };
 
@@ -82,22 +83,22 @@ SendOptions parseOptions(int argc, char **argv)
     {
         switch (c)
         {
-            case 'h':
-                usage();
-                std::exit(0);
-            case 'm':
+            case 'b':
             {
                 size_t pos{ };
-                opts.mtu = std::stoul(optarg, &pos);
+                opts.blockSize = std::stoul(optarg, &pos);
 
                 if (pos != std::string(optarg).size())
                 {
-                    spdlog::error("invalid mtu value: {}", optarg);
+                    spdlog::error("invalid block size value: {}", optarg);
                     std::exit(1);
                 }
 
                 break;
             }
+            case 'h':
+                usage();
+                std::exit(0);
             case 'p':
                 opts.path = optarg;
                 break;
@@ -174,7 +175,7 @@ int send(int argc, char **argv)
 
     auto conf = util::AgentConfig{ };
     conf.targets = opts.targets;
-    conf.mtu = opts.mtu;
+    conf.blockSize = opts.blockSize;
 
     auto agent = util::MmapAgent{std::move(conf)};
 

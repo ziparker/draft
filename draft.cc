@@ -33,7 +33,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <liburing.h>
 #include <signal.h>
 
 #include <nlohmann/json.hpp>
@@ -67,6 +66,19 @@ int dispatchSubcommand(int argc, char **argv)
 
     if (subProg == "recv")
         return cmd::recv(argc, argv);
+
+    #ifdef DRAFT_HAVE_COMPRESS
+    if (subProg == "compress")
+        return cmd::compress(argc, argv);
+
+    if (subProg == "decompress")
+        return cmd::decompress(argc, argv);
+    #endif
+
+    #ifdef DRAFT_HAVE_CUDA
+    if (subProg == "nvcompress")
+        return cmd::nvcompress(argc, argv);
+    #endif
 
     usage();
 

@@ -123,7 +123,7 @@ auto tcpAddrInfo(const std::string &host, uint16_t port)
 
     struct addrinfo *info = nullptr;
     struct addrinfo hint { };
-    hint.ai_family = AF_UNSPEC;
+    hint.ai_family = AF_INET;
     hint.ai_socktype = SOCK_STREAM;
     hint.ai_protocol = IPPROTO_TCP;
 
@@ -221,23 +221,6 @@ int PollSet::waitOnce(int tmoMs)
 ////////////////////////////////////////////////////////////////////////////////
 // MmapAgent
 
-void MmapAgent::initUring(unsigned lenPwr)
-{
-    if (lenPwr > 12)
-    {
-        throw std::out_of_range(fmt::format(
-            "draft::Agent: specified ring length (2^{}) exceeds max: 2^12", lenPwr));
-    }
-
-    if (auto stat = io_uring_queue_init(1u << lenPwr, &ring_, 0))
-    {
-        throw std::system_error(-stat, std::system_category(),
-            "draft::Agent::initUring: io_uring_queue_init");
-    }
-
-    ringDepth_ = 1u << lenPwr;
-}
-
 void MmapAgent::initNetwork(const AgentConfig &conf)
 {
     for (const auto &target : conf.targets)
@@ -255,7 +238,7 @@ void MmapAgent::initNetwork(const AgentConfig &conf)
         poll_.add(fd.get(), EPOLLOUT);
 
         const auto rawFd = fd.get();
-        auto info = FdInfo {std::move(fd), 10000};
+        auto info = FdInfo{std::move(fd), 10000};
 
         fdMap_.insert({rawFd, std::move(info)});
     }
@@ -268,23 +251,6 @@ void MmapAgent::initNetwork(const AgentConfig &conf)
 
 ////////////////////////////////////////////////////////////////////////////////
 // FileAgent
-
-void FileAgent::initUring(unsigned lenPwr)
-{
-    if (lenPwr > 12)
-    {
-        throw std::out_of_range(fmt::format(
-            "draft::Agent: specified ring length (2^{}) exceeds max: 2^12", lenPwr));
-    }
-
-    if (auto stat = io_uring_queue_init(1u << lenPwr, &ring_, 0))
-    {
-        throw std::system_error(-stat, std::system_category(),
-            "draft::Agent::initUring: io_uring_queue_init");
-    }
-
-    ringDepth_ = 1u << lenPwr;
-}
 
 void FileAgent::initFileState(FileAgentConfig conf)
 {
@@ -303,7 +269,17 @@ void FileAgent::initFileState(FileAgentConfig conf)
 
         // we expect files to have been created & allocated elsewhere.
         auto path = rootedPath(conf.root, info.path, info.targetSuffix);
-        state.fd = ScopedFd{open(path.c_str(), O_RDWR)};
+        auto flags = O_RDWR;
+
+        // XXX: info blksize is not the right thing to use here, just using as
+        // a hack for testing.
+        if (conf.enableDio && info.status.size > static_cast<size_t>(info.status.blkSize))
+        {
+            spdlog::info("enabling DIO for file {}", path.string());
+            flags |= O_DIRECT;
+        }
+
+        state.fd = ScopedFd{open(path.c_str(), flags)};
 
         if (state.fd.get() < 0)
         {
@@ -416,6 +392,17 @@ NetworkTarget parseTarget(const std::string &str)
     return {str.substr(0, ipEnd), static_cast<uint16_t>(port)};
 }
 
+size_t parseSize(const std::string &str)
+{
+    size_t pos{ };
+    auto sz = std::stoul(str, &pos);
+
+    if (pos != str.size())
+        throw std::invalid_argument(fmt::format("size option: {}", str));
+
+    return sz;
+}
+
 void createTargetFiles(const std::string &root, const std::vector<FileInfo> &infos)
 {
     namespace fs = std::filesystem;
@@ -455,12 +442,17 @@ std::string dirname(std::string path)
 
 std::filesystem::path rootedPath(std::filesystem::path root, std::string path, std::string suffix)
 {
+    namespace fs = std::filesystem;
+
     // TODO: proper path rooting.
 
     path += std::move(suffix);
-    root /= std::move(path);
 
-    return root;
+    root = fs::absolute(root);
+    root += '/';
+    root += std::move(path);
+
+    return fs::absolute(root);
 }
 
 namespace net {

@@ -49,6 +49,8 @@ static_assert(alignof(Frame) == 8);
 
 struct ChunkHeader
 {
+    static constexpr size_t BlockSize = 4096u;
+
     static constexpr uint64_t Magic = 0x55aa'aa55'da7a'0000;
     static constexpr uint64_t MagicVersionMask = 0xffff;
     static constexpr uint64_t MagicMask = ~MagicVersionMask;
@@ -58,9 +60,13 @@ struct ChunkHeader
     uint64_t payloadLength{ };
     uint16_t fileId{ };
     uint8_t pad0[4]{ };
+    uint8_t pad_align[BlockSize - 32]{ };
 };
 
-static_assert(sizeof(ChunkHeader) == 32);
+constexpr size_t UnalignedChunkHeaderSize =
+    sizeof(ChunkHeader) - sizeof(ChunkHeader::pad_align);
+
+static_assert(sizeof(ChunkHeader) == ChunkHeader::BlockSize);
 static_assert(alignof(ChunkHeader) == 8);
 
 }

@@ -71,20 +71,47 @@ if (DRAFT_ENABLE_SANITIZERS)
     set(DRAFT_SANITIZER_LIBS asan ubsan)
 endif ()
 
-find_package(PkgConfig)
-pkg_check_modules(uring REQUIRED liburing)
-
 find_package(nlohmann_json REQUIRED)
 find_package(spdlog REQUIRED)
 
-add_library(draftutil recv.cc send.cc Util.cc UtilJson.cc)
-target_include_directories(draftutil
-    PUBLIC ${uring_INCLUDE_DIRS})
-target_link_directories(draftutil
-    PUBLIC ${uring_LIBRARY_DIRS})
+find_library(blosc2_LIBRARY blosc2)
+find_path(blosc2_INCLUDE_DIRS blosc2.h)
+
+find_package(CUDAToolkit)
+find_library(nvcomp_LIBRARY nvcomp)
+find_library(cufile_LIBRARY cufile)
+find_path(cufile_INCLUDE_DIRS cufile.h)
+find_path(nvcomp_INCLUDE_DIRS nvcomp.hpp)
+
+list(APPEND DRAFTUTIL_SRC
+    recv.cc send.cc Util.cc UtilJson.cc)
+
+if (blosc2_LIBRARY AND blosc2_INCLUDE_DIRS)
+    list(APPEND DRAFTUTIL_SRC compress.cc)
+endif ()
+
+if (nvcomp_LIBRARY AND cufile_LIBRARY AND
+    nvcomp_INCLUDE_DIRS AND cufile_INCLUDE_DIRS)
+    message(STATUS "draft: including nvidia compression subcommand.")
+    list(APPEND DRAFTUTIL_SRC nvcompress.cc)
+endif ()
+
+add_library(draftutil ${DRAFTUTIL_SRC})
 target_link_libraries(draftutil
     PRIVATE spdlog::spdlog
-    PUBLIC nlohmann_json::nlohmann_json ${uring_LIBRARIES})
+    PUBLIC nlohmann_json::nlohmann_json)
+
+if (blosc2_LIBRARY)
+    target_compile_definitions(draftutil PUBLIC DRAFT_HAVE_COMPRESS=1)
+    target_link_libraries(draftutil PRIVATE ${blosc2_LIBRARY})
+    target_include_directories(draftutil PRIVATE ${blosc2_INCLUDE_DIRS})
+endif ()
+
+if (nvcomp_LIBRARY)
+    target_compile_definitions(draftutil PUBLIC DRAFT_HAVE_CUDA=1)
+    target_link_libraries(draftutil PRIVATE ${nvcomp_LIBRARY} ${cufile_LIBRARY} CUDA::cudart)
+    target_include_directories(draftutil PRIVATE ${nvcomp_INCLUDE_DIRS} ${cufile_INCLUDE_DIRS})
+endif ()
 
 add_executable(draft draft.cc)
 target_link_libraries(draft PRIVATE draftutil spdlog::spdlog)

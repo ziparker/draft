@@ -80,7 +80,7 @@ Buffer generateTransferRequestMsg(std::vector<FileInfo> info)
     j["client"] = 0;
     j["info"] = info;
 
-    auto buf = Buffer{ };
+    auto buf = std::vector<uint8_t>{ };
     buf.resize(sizeof(wire::ChunkHeader));
 
     nlohmann::json::to_cbor(j, buf);
@@ -94,14 +94,14 @@ Buffer generateTransferRequestMsg(std::vector<FileInfo> info)
 
 TransferRequest deserializeTransferRequest(const Buffer &buf)
 {
-    if (buf.size() < sizeof(wire::ChunkHeader))
+    if (buf.size() < wire::UnalignedChunkHeaderSize)
     {
         throw std::invalid_argument(fmt::format("request buffer is too short to contain a valid request: {}/{}"
             , buf.size()
             , sizeof(wire::ChunkHeader)));
     }
 
-    const auto j = nlohmann::json::from_cbor(buf);
+    const auto j = nlohmann::json::from_cbor(buf.vector());
     spdlog::info("req: {}", j.dump(4));
 
     auto req = TransferRequest{ };

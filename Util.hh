@@ -27,14 +27,24 @@
 #define __DRAFT_UTIL_HH__
 
 #include <algorithm>
+#include <chrono>
+#include <condition_variable>
+#include <cstdlib>
 #include <cstring>
+#include <deque>
 #include <filesystem>
+#include <future>
 #include <memory>
+#include <numeric>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <thread>
 #include <unordered_map>
 #include <utility>
+
+#include <set>
 
 #include <fcntl.h>
 #include <sys/epoll.h>
@@ -43,17 +53,651 @@
 #include <sys/uio.h>
 #include <unistd.h>
 
-#include <liburing.h>
 #include <spdlog/spdlog.h>
+#include <spdlog/fmt/bin_to_hex.h>
 
 #include "Protocol.hh"
 
 namespace draft::util {
 
+constexpr size_t BlockSize = 4096u;
+
+constexpr size_t roundBlockSize(size_t len) noexcept
+{
+    return (len + BlockSize - 1) & ~size_t{BlockSize-1};
+};
+
+inline size_t computeSegmentSize(size_t fileLen, size_t linkCount)
+{
+    return roundBlockSize(fileLen / linkCount);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// IO
+
+inline size_t readChunk(int fd, void *data, size_t dlen, size_t fileOffset)
+{
+    auto buf = reinterpret_cast<uint8_t *>(data);
+
+    for (size_t offset = 0; offset < dlen; )
+    {
+        auto len = ::pread(fd, buf + offset, dlen - offset, static_cast<off_t>(fileOffset + offset));
+
+        if (len < 0)
+            throw std::system_error(errno, std::system_category(), "pread");
+
+        if (!len)
+            return offset;
+
+        offset += static_cast<size_t>(len);
+    }
+
+    return dlen;
+}
+
+inline size_t writeChunk(int fd, iovec *iov, size_t iovCount)
+{
+    auto written = size_t{ };
+
+    while (iovCount)
+    {
+        const auto len = ::writev(fd, iov, iovCount);
+
+        if (len < 0)
+            throw std::system_error(errno, std::system_category(), "write");
+
+        if (!len)
+            break;
+
+        auto ulen = static_cast<size_t>(len);
+
+        while (ulen && iovCount)
+        {
+            const auto adv = std::min(iov->iov_len, ulen);
+            iov->iov_base = reinterpret_cast<uint8_t *>(iov->iov_base) + adv;
+            iov->iov_len -= adv;
+
+            ulen -= adv;
+
+            if (!iov->iov_len)
+            {
+                ++iov;
+                --iovCount;
+            }
+        }
+
+        written += ulen;
+    }
+
+    return written;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Buffer
 
-using Buffer = std::vector<uint8_t>;
+class Buffer
+{
+public:
+    Buffer() = default;
+
+    explicit Buffer(size_t size):
+        data_(std::malloc(size)),
+        size_(size)
+    {
+        if (!data_)
+            throw std::bad_alloc();
+    }
+
+    Buffer(const std::vector<uint8_t> &vec):
+        Buffer(vec.data(), vec.size())
+    {
+    }
+
+    explicit Buffer(const void *data, size_t size):
+        data_(std::malloc(size)),
+        size_(size)
+    {
+        if (!data_)
+            throw std::bad_alloc();
+
+        std::memcpy(data_, data, size_);
+    }
+
+    Buffer(const Buffer &o)
+    {
+        *this = o;
+    }
+
+    Buffer &operator=(const Buffer &o)
+    {
+        if (this == &o)
+            return *this;
+
+        resize(o.size_);
+
+        std::memcpy(data_, o.data_, size_);
+
+        return *this;
+    }
+
+    Buffer(Buffer &&o)
+    {
+        *this = o;
+    }
+
+    Buffer &operator=(Buffer &&o)
+    {
+        if (this == &o)
+            return *this;
+
+        std::free(data_);
+
+        data_ = o.data_;
+        size_ = o.size_;
+        o.data_ = nullptr;
+        o.size_ = 0u;
+
+        return *this;
+    }
+
+    ~Buffer()
+    {
+        std::free(data_);
+        data_ = nullptr;
+        size_ = 0;
+    }
+
+    void resize(size_t size)
+    {
+        auto p = std::realloc(data_, size);
+
+        if (!p)
+        {
+            std::free(data_);
+            size_ = 0;
+            throw std::runtime_error("Buffer: realloc failed");
+        }
+
+        data_ = p;
+        size_ = size;
+    }
+
+    std::vector<uint8_t> vector() const
+    {
+        return {uint8Data(), uint8Data() + size_};
+    }
+
+    void *data() noexcept { return data_; }
+    const void *data() const noexcept { return data_; }
+    uint8_t *uint8Data() noexcept { return reinterpret_cast<uint8_t *>(data_); }
+    const uint8_t *uint8Data() const noexcept { return reinterpret_cast<uint8_t *>(data_); }
+
+    size_t size() const noexcept { return size_; }
+
+private:
+    void *data_{ };
+    size_t size_{ };
+};
+
+////////////////////////////////////////////////////////////////////////////////
+// WaitQueue
+
+template <typename T>
+class WaitQueue
+{
+public:
+    using Clock = std::chrono::steady_clock;
+    using Mutex = std::timed_mutex;
+    using Lock = std::unique_lock<Mutex>;
+    using Value = T;
+    using ReturnType = std::optional<Value>;
+    using Queue = std::deque<Value>;
+
+    void put(Value t)
+    {
+        doPut(std::move(t), nullptr);
+    }
+
+    bool put(Value t, const Clock::time_point &deadline)
+    {
+        return doPut(std::move(t), &deadline);
+    }
+
+    ReturnType get()
+    {
+        return doGet(nullptr);
+    }
+
+    ReturnType get(const Clock::time_point &deadline)
+    {
+        return doGet(&deadline);
+    }
+
+    void cancel() noexcept
+    {
+        done_ = true;
+        cond_.notify_all();
+    }
+
+    void resume() noexcept
+    {
+        done_ = false;
+    }
+
+    bool done() const noexcept
+    {
+        return done_;
+    }
+
+private:
+    ReturnType doGet(const Clock::time_point *deadline)
+    {
+        const auto op = [this] {
+            auto t = std::move(q_.front());
+            q_.pop_front();
+            return t;
+        };
+
+        return doWithCondition(op, deadline);
+    }
+
+    bool doPut(Value t, const Clock::time_point *deadline)
+    {
+        const auto op = [this, v = std::move(t)]() -> Value {
+            q_.push_back(std::move(v));
+            return { };
+        };
+
+        bool timedOut{ };
+        doWithLock(op, deadline, &timedOut);
+
+        if (!timedOut)
+            cond_.notify_one();
+
+        return !timedOut;
+    }
+
+    auto doWithLock(const std::function<Value()> &op, const Clock::time_point *deadline, bool *timedOut = nullptr)
+        -> std::optional<Value>
+    {
+        Lock lk(mtx_, std::defer_lock_t{ });
+
+        if (deadline)
+        {
+            if (!lk.try_lock_until(*deadline))
+            {
+                if (timedOut)
+                    *timedOut = true;
+
+                return { };
+            }
+        }
+        else
+        {
+            lk.lock();
+        }
+
+        if (!op)
+            return { };
+
+        return op();
+    }
+
+    auto doWithCondition(const std::function<Value()> &op, const Clock::time_point *deadline, bool *timedOut = nullptr)
+        -> std::optional<Value>
+    {
+        Lock lk(mtx_, std::defer_lock_t{ });
+
+        if (deadline)
+        {
+            if (!lk.try_lock_until(*deadline))
+            {
+                if (timedOut)
+                    *timedOut = true;
+
+                return { };
+            }
+        }
+        else
+        {
+            lk.lock();
+        }
+
+        if (!deadline)
+        {
+            cond_.wait(lk, [this]{ return done_ || !q_.empty(); });
+        }
+        else
+        {
+            if (!cond_.wait_until(lk, *deadline, [this]{ return done_ || !q_.empty(); }))
+            {
+                if (timedOut)
+                    *timedOut = true;
+
+                return { };
+            }
+        }
+
+        if (timedOut)
+            *timedOut = false;
+
+        if (done_)
+            return { };
+
+        if (!op)
+            return { };
+
+        return op();
+    }
+
+    Mutex mtx_;
+    std::condition_variable_any cond_;
+    Queue q_;
+    bool done_{ };
+};
+
+////////////////////////////////////////////////////////////////////////////////
+// ScopedMMap
+
+class ScopedMMap
+{
+public:
+    static ScopedMMap map(void *addr, size_t len, int prot, int flags, int fildes, off_t off)
+    {
+        auto p = ::mmap(addr, len, prot, flags, fildes, off);
+
+        if (p == MAP_FAILED)
+            throw std::system_error(errno, std::system_category(), "draft::ScopedMMap");
+
+        return {p, len};
+    }
+
+    ScopedMMap() = default;
+
+    ~ScopedMMap() noexcept
+    {
+        unmap();
+    }
+
+    ScopedMMap(const ScopedMMap &) = delete;
+    ScopedMMap &operator=(const ScopedMMap &) = delete;
+
+    ScopedMMap(ScopedMMap &&o) noexcept
+    {
+        *this = std::move(o);
+    }
+
+    ScopedMMap &operator=(ScopedMMap &&o) noexcept
+    {
+        using std::swap;
+
+        unmap();
+
+        swap(o.addr_, addr_);
+        swap(o.len_, len_);
+
+        return *this;
+    }
+
+    int unmap() noexcept
+    {
+        auto stat = 0;
+
+        if (addr_)
+            stat = ::munmap(addr_, len_);
+
+        addr_ = nullptr;
+        len_ = 0;
+
+        return stat;
+    }
+
+    void *data(size_t offset = 0) const noexcept
+    {
+        return uint8Data(offset);
+    }
+
+    uint8_t *uint8Data(size_t offset = 0) const noexcept
+    {
+        return reinterpret_cast<uint8_t *>(addr_) + offset;
+    }
+
+    size_t size() const noexcept
+    {
+        return len_;
+    }
+
+    bool offsetValid(size_t offset) const noexcept
+    {
+        return addr_ && offset < len_;
+    }
+
+private:
+    ScopedMMap(void *addr, size_t len) noexcept:
+        addr_(addr),
+        len_(len)
+    {
+    }
+
+    void *addr_{ };
+    size_t len_{ };
+};
+
+////////////////////////////////////////////////////////////////////////////////
+// FreeList
+
+class FreeList
+{
+public:
+    static constexpr auto End = ~size_t{0};
+
+    FreeList() = default;
+
+    explicit FreeList(size_t size)
+    {
+        list_.resize(size);
+        std::iota(begin(list_), end(list_), 1u);
+        list_.back() = End;
+    }
+
+    size_t get()
+    {
+        auto idx = free_;
+
+        if (free_ == End)
+            return ~0u;
+
+        free_ = list_[free_];
+
+        return idx;
+    }
+
+    void put(size_t idx)
+    {
+        if (idx < list_.size())
+            list_[idx] = free_;
+
+        free_ = idx;
+    }
+
+private:
+    std::vector<size_t> list_{ };
+    size_t free_{ };
+};
+
+////////////////////////////////////////////////////////////////////////////////
+// BufferPool
+
+class BufferPool: public std::enable_shared_from_this<BufferPool>
+{
+public:
+    using Lock = std::unique_lock<std::mutex>;
+
+    struct Buffer
+    {
+    public:
+        Buffer() = default;
+
+        Buffer(const Buffer &) = delete;
+        Buffer &operator=(const Buffer &) = delete;
+
+        Buffer(Buffer &&o) noexcept
+        {
+            *this = std::move(o);
+        }
+
+        Buffer &operator=(Buffer &&o) noexcept
+        {
+            if (pool_)
+                pool_->put(freeIdx_);
+
+            data_ = o.data_;
+            o.data_ = nullptr;
+
+            size_ = o.size_;
+            o.size_ = 0;
+
+            freeIdx_ = o.freeIdx_;
+            o.freeIdx_ = 0;
+
+            pool_ = o.pool_;
+            o.pool_ = nullptr;
+
+            return *this;
+        }
+
+        ~Buffer() noexcept
+        {
+            if (pool_)
+                pool_->put(freeIdx_);
+        }
+
+        void *data() noexcept { return data_; };
+        const void *data() const noexcept { return data_; };
+
+        uint8_t *uint8Data() noexcept { return reinterpret_cast<uint8_t *>(data_); };
+        const uint8_t *uint8Data() const noexcept { return reinterpret_cast<const uint8_t *>(data_); };
+
+        size_t size() const noexcept { return size_; };
+
+        size_t freeIndex() const noexcept { return freeIdx_; }
+
+        explicit operator bool() const noexcept { return data_; }
+
+    private:
+        friend class BufferPool;
+
+        Buffer(const std::shared_ptr<BufferPool> &pool, size_t index, void *data, size_t size):
+            data_(data),
+            size_(size),
+            freeIdx_(index),
+            pool_(pool)
+        {
+        }
+
+        void *data_{ };
+        size_t size_{ };
+        size_t freeIdx_{ };
+        std::shared_ptr<BufferPool> pool_{ };
+    };
+
+    static std::shared_ptr<BufferPool> make(size_t chunkSize, size_t count)
+    {
+        auto p = std::shared_ptr<BufferPool>(new BufferPool);
+        p->init(chunkSize, count);
+        return p;
+    }
+
+    ~BufferPool() noexcept
+    {
+        done_ = true;
+        cond_.notify_all();
+    }
+
+    Buffer get()
+    {
+        Lock lk(mtx_);
+
+        size_t idx{ };
+
+        cond_.wait(lk, [this, &idx] {
+            if (done_)
+                return true;
+            idx = freeList_.get();
+            return idx != ~0u;
+        });
+
+        if (done_ || idx == ~0u)
+            return { };
+
+        return {
+            shared_from_this(),
+            idx,
+            mmap_.uint8Data(idx * chunkSize_),
+            chunkSize_
+        };
+    }
+
+private:
+    BufferPool() = default;
+
+    BufferPool(size_t chunkSize, size_t chunkCount):
+        chunkSize_(chunkSize),
+        chunkCount_(chunkCount)
+    {
+        init();
+    }
+
+    void init(size_t chunkSize, size_t chunkCount)
+    {
+        chunkSize_ = chunkSize;
+        chunkCount_ = chunkCount;
+
+        init();
+    }
+
+    void init()
+    {
+        mmap_ = ScopedMMap::map(
+            nullptr,
+            roundBlockSize(chunkSize_ * chunkCount_),
+            PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS | MAP_POPULATE,
+            -1,
+            0);
+
+        freeList_ = FreeList{chunkCount_};
+    }
+
+    void put(size_t index)
+    {
+        if (done_)
+            return;
+
+        {
+            Lock lk(mtx_);
+            freeList_.put(index);
+        }
+
+        cond_.notify_one();
+    }
+
+    std::mutex mtx_{ };
+    std::condition_variable cond_{ };
+    FreeList freeList_{ };
+    ScopedMMap mmap_{ };
+    size_t chunkSize_{ };
+    size_t chunkCount_{ };
+    bool done_{ };
+};
+
+struct MessageBuffer
+{
+    std::shared_ptr<BufferPool::Buffer> buf;
+    size_t fileOffset{ };
+    size_t payloadLength{ };
+    unsigned fileId{ };
+};
 
 ////////////////////////////////////////////////////////////////////////////////
 // IOVec
@@ -233,216 +877,6 @@ private:
 };
 
 ////////////////////////////////////////////////////////////////////////////////
-// ScopedPipe
-
-class ScopedPipe
-{
-public:
-    ScopedPipe()
-    {
-        if (::pipe(fds_))
-            throw std::system_error(errno, std::system_category(), "draft::ScopedPipe");
-    }
-
-    ~ScopedPipe() noexcept
-    {
-        close();
-    }
-
-    ScopedPipe(const ScopedPipe &) = delete;
-    ScopedPipe &operator=(const ScopedPipe &) = delete;
-
-    ScopedPipe(ScopedPipe &&o) noexcept
-    {
-        *this = std::move(o);
-    }
-
-    ScopedPipe &operator=(ScopedPipe &&o) noexcept
-    {
-        close();
-        std::swap(o.fds_[0], fds_[0]);
-        std::swap(o.fds_[1], fds_[1]);
-        return *this;
-    }
-
-    int close() noexcept
-    {
-        auto stat = ::close(fds_[0]);
-
-        if (auto stat2 = ::close(fds_[1]); stat2 && !stat)
-            stat = stat2;
-
-        fds_[0] = fds_[1] = -1;
-
-        return stat;
-    }
-
-    int readFd() const noexcept
-    {
-        return fds_[0];
-    }
-
-    int writeFd() const noexcept
-    {
-        return fds_[1];
-    }
-
-private:
-    int fds_[2] {-1, -1};
-};
-
-////////////////////////////////////////////////////////////////////////////////
-// ScopedMMap
-
-class ScopedMMap
-{
-public:
-    static ScopedMMap map(void *addr, size_t len, int prot, int flags, int fildes, off_t off)
-    {
-        auto p = ::mmap(addr, len, prot, flags, fildes, off);
-
-        if (p == MAP_FAILED)
-            throw std::system_error(errno, std::system_category(), "draft::ScopedMMap");
-
-        return {p, len};
-    }
-
-    ScopedMMap() = default;
-
-    ~ScopedMMap() noexcept
-    {
-        unmap();
-    }
-
-    ScopedMMap(const ScopedMMap &) = delete;
-    ScopedMMap &operator=(const ScopedMMap &) = delete;
-
-    ScopedMMap(ScopedMMap &&o) noexcept
-    {
-        *this = std::move(o);
-    }
-
-    ScopedMMap &operator=(ScopedMMap &&o) noexcept
-    {
-        using std::swap;
-
-        unmap();
-
-        swap(o.addr_, addr_);
-        swap(o.len_, len_);
-
-        return *this;
-    }
-
-    int unmap() noexcept
-    {
-        auto stat = 0;
-
-        if (addr_)
-            stat = ::munmap(addr_, len_);
-
-        addr_ = nullptr;
-        len_ = 0;
-
-        return stat;
-    }
-
-    void *data(size_t offset = 0) const noexcept
-    {
-        return uint8Data(offset);
-    }
-
-    uint8_t *uint8Data(size_t offset = 0) const noexcept
-    {
-        return reinterpret_cast<uint8_t *>(addr_) + offset;
-    }
-
-    size_t size() const noexcept
-    {
-        return len_;
-    }
-
-    bool offsetValid(size_t offset) const noexcept
-    {
-        return addr_ && offset < len_;
-    }
-
-private:
-    ScopedMMap(void *addr, size_t len) noexcept:
-        addr_(addr),
-        len_(len)
-    {
-    }
-
-    void *addr_{ };
-    size_t len_{ };
-};
-
-////////////////////////////////////////////////////////////////////////////////
-// CqueWrapper
-
-class CqeWrapper final
-{
-public:
-    CqeWrapper() = default;
-
-    CqeWrapper(struct io_uring &ring, struct io_uring_cqe *cqe) noexcept:
-        ring_(&ring),
-        cqe_(cqe)
-    {
-    }
-
-    CqeWrapper(const CqeWrapper &) = delete;
-    CqeWrapper &operator=(const CqeWrapper &) = delete;
-
-    CqeWrapper(CqeWrapper &&cqe)
-    {
-        *this = std::move(cqe);
-    }
-
-    CqeWrapper &operator=(CqeWrapper &&o)
-    {
-        clear();
-
-        ring_ = o.ring_;
-        cqe_ = o.cqe_;
-        o.ring_ = nullptr;
-        o.cqe_ = nullptr;
-
-        return *this;
-    }
-
-    ~CqeWrapper() noexcept
-    {
-        clear();
-    }
-
-    struct io_uring_cqe *get()
-    {
-        return cqe_;
-    }
-
-    const struct io_uring_cqe *get() const
-    {
-        return cqe_;
-    }
-
-    void clear() noexcept
-    {
-        if (cqe_)
-        {
-            io_uring_cqe_seen(ring_, cqe_);
-            cqe_ = nullptr;
-            ring_ = nullptr;
-        }
-    }
-
-private:
-    struct io_uring *ring_{ };
-    struct io_uring_cqe *cqe_{ };
-};
-
-////////////////////////////////////////////////////////////////////////////////
 // PollSet
 
 class PollSet
@@ -476,11 +910,6 @@ private:
 ////////////////////////////////////////////////////////////////////////////////
 // Agent
 
-constexpr size_t mtuPayload(unsigned mtu) noexcept
-{
-    return mtu - 48 - sizeof(wire::ChunkHeader);
-}
-
 struct NetworkTarget
 {
     std::string ip{ };
@@ -490,17 +919,19 @@ struct NetworkTarget
 struct AgentConfig
 {
     std::vector<NetworkTarget> targets;
-    unsigned mtu{9000};
+    size_t blockSize{1u << 22};
+    size_t txRingPwr{5};
 };
 
 class MmapAgent
 {
 public:
     explicit MmapAgent(AgentConfig conf):
-        mtu_(conf.mtu)
+        blockSize_(conf.blockSize)
     {
-        initUring(12);
         initNetwork(conf);
+
+        pool_ = BufferPool::make(blockSize_, 1u << conf.txRingPwr);
     }
 
     void cancel()
@@ -512,80 +943,59 @@ public:
     {
         namespace fs = std::filesystem;
 
-        auto fd = ScopedFd{openFile(path)};
-        const auto fileLen = fs::file_size(path);
+        auto fd = ScopedFd{::open(path.c_str(), O_RDONLY | O_DIRECT)};
 
-        const auto payloadLen = mtuPayload(mtu_);
-
-        // TODO: - map_populate option for smallish files, huge page usage?
-        auto mmap = std::make_shared<ScopedMMap>(
-            ScopedMMap::map(nullptr, fileLen, PROT_READ, MAP_PRIVATE, fd.get(), 0));
-
-        if (madvise(mmap->data(), fileLen, MADV_SEQUENTIAL))
+        if (fd.get() < 0)
         {
-            spdlog::warn("transferFile: unable to madvise on mapped file '{}': {}"
-                , path
-                , std::strerror(errno));
+            throw std::system_error(errno, std::system_category(),
+                fmt::format("open '{}'", path));
         }
 
-        spdlog::info("file len: {} ({} - {})"
-            , fileLen
-            , mmap->data()
-            , mmap->data(fileLen));
+        spdlog::info("file {} fd: {}", path, fd.get());
+
+        auto fileLen = fs::file_size(path);
 
         done_ = false;
+
+        auto results = std::vector<std::future<std::pair<size_t, size_t>>>{ };
+        const auto segmentSize = computeSegmentSize(fileLen, fdMap_.size());
+        size_t offset = 0;
+
+        for (const auto &fdInfo : fdMap_)
+        {
+            const auto &info = fdInfo.second;
+
+            const auto actualSegmentSize = std::min(segmentSize, fileLen);
+
+            auto segment = Segment{
+                    offset,
+                    offset + actualSegmentSize,
+                    fileId
+                };
+
+            results.push_back(
+                std::async(std::launch::async,
+                    [this, inFd = fd.get(), outFd = info.fd.get(), segment] {
+                        return transferSegment(inFd, outFd, segment);
+                    }));
+
+            offset += actualSegmentSize;
+            fileLen -= actualSegmentSize;
+
+            if (!fileLen)
+                break;
+        }
 
         size_t chunkCount{ };
         size_t chunkXfer{ };
 
-        for (size_t fileOffset = 0; !done_ && fileOffset < fileLen; )
+        for (auto &result : results)
         {
-            auto startCount = sqeCount_;
-
-            while (!done_ && sqeCount_ < ringDepth_ && fileOffset < fileLen)
-            {
-                const auto xferPayloadLen = std::min(fileLen - fileOffset, payloadLen);
-
-                auto xfer = initXfer(mmap, fileOffset, xferPayloadLen, fileId);
-
-                xfer->fd = selectSocket();
-                if (xfer->fd < 0)
-                {
-                    spdlog::error("no descriptors are selectable for writing - waiting.");
-                    continue;
-                }
-
-                spdlog::trace("offset: {} {} {} {}"
-                    , fileOffset, xferPayloadLen, fileLen, sqeCount_);
-
-                fileOffset += xferPayloadLen;
-
-                writeChunk(std::move(xfer));
-                if (useUring_)
-                    ++sqeCount_;
-
-                ++chunkCount;
-                chunkXfer += sizeof(wire::ChunkHeader) + xferPayloadLen;
-            }
-
-            if (!useUring_)
-                continue;
-
-            if (startCount != sqeCount_)
-            {
-                if (io_uring_submit(&ring_) < 0)
-                    throw std::system_error(errno, std::system_category(), "io_uring_submit");
-            }
-
-            handleCqes();
+            auto [count, xfer] = result.get();
+            chunkCount += count;
+            chunkXfer += xfer;
         }
 
-        auto count = sqeCount_;
-
-        if (useUring_)
-            handleCqes(sqeCount_);
-
-        spdlog::info("drain {} -> {}", count, sqeCount_);
         spdlog::info("xferred {} chunk(s), {} bytes", chunkCount, chunkXfer);
 
         return 0;
@@ -594,18 +1004,11 @@ public:
 private:
     using SharedMMap = std::shared_ptr<ScopedMMap>;
 
-    struct TransferState
+    struct Segment
     {
-        wire::ChunkHeader header{ };
-
-        SharedMMap fileMap{ };
-        iovec iovs[2]{ };
-
-        size_t fileOffset{ };
-        size_t xferLen{ };
-        size_t payloadLen{ };
-        unsigned iovIndex{ };
-        int fd{-1};
+        size_t start{ };
+        size_t end{ };
+        unsigned fileId{ };
     };
 
     struct FdInfo
@@ -614,353 +1017,59 @@ private:
         unsigned speed{1000};
     };
 
-    void initUring(unsigned lenPwr);
-
     void initNetwork(const AgentConfig &conf);
 
-    int selectSocket()
+    std::pair<size_t, size_t> transferSegment(int inFd, int outFd, const Segment &segment)
     {
-        if (useUring_)
+        // write segment header.
+
+        auto header = wire::ChunkHeader{ };
+        header.magic = wire::ChunkHeader::Magic;
+        header.fileOffset = segment.start;
+        header.payloadLength = segment.end - segment.start;
+        header.fileId = segment.fileId;
+
+        auto iov = iovec {&header, sizeof(header)};
+        writeChunk(outFd, &iov, 1);
+
+        // write segment data.
+
+        uint8_t *buf{ };
+        if (posix_memalign(reinterpret_cast<void **>(&buf), BlockSize, blockSize_))
+            throw std::system_error(errno, std::system_category(), "posix_memalign");
+
+        size_t chunkCount{ };
+        size_t chunkXfer{ };
+
+        for (size_t fileOffset = segment.start; !done_ && fileOffset < segment.end; )
         {
-            if (++fdIter_ == end(fdMap_))
-                fdIter_ = begin(fdMap_);
-
-            return fdIter_->first;
-        }
-
-        int selectedFd{-1};
-
-        const auto selector = [this, &selectedFd](const std::vector<epoll_event> &evts) {
-                unsigned fastestSpeed = 0;
-
-                for (const auto &evt : evts)
-                {
-                    auto fd = evt.data.fd;
-                    auto iter = fdMap_.find(fd);
-
-                    if (iter == end(fdMap_))
-                        continue;
-
-                    const auto &info = iter->second;
-
-                    if (info.speed > fastestSpeed)
-                        selectedFd = fd;
-                }
-
-                return true;
-            };
-
-        // wait for write readiness.
-        while (!done_ && !poll_.waitOnce(100, selector))
-            ;
-
-        return selectedFd;
-    }
-
-    ScopedFd openFile(const std::string &path)
-    {
-        return ScopedFd{::open(path.c_str(), O_RDONLY)};
-    }
-
-    std::unique_ptr<TransferState> initXfer(const std::shared_ptr<ScopedMMap> &mmap, size_t offset, size_t len, uint16_t fileId)
-    {
-        auto xfer = std::make_unique<TransferState>();
-        xfer->fileMap = mmap;
-        xfer->fileOffset = offset;
-        xfer->xferLen = sizeof(wire::ChunkHeader) + len;
-        xfer->payloadLen = len;
-
-        xfer->iovs[0].iov_base = &xfer->header;
-        xfer->iovs[0].iov_len = sizeof(xfer->header);
-
-        xfer->iovs[1].iov_base = xfer->fileMap->uint8Data(offset);
-        xfer->iovs[1].iov_len = len;
-
-        xfer->header = {
-            wire::ChunkHeader::Magic,
-            offset,
-            len,
-            fileId,
-            { }
-        };
-
-        return xfer;
-    }
-
-    int writeChunk(std::unique_ptr<TransferState> xfer)
-    {
-        if (!useUring_)
-        {
-            if (auto stat = syncWrite(std::move(xfer)))
-                spdlog::error("sync write: {}", std::strerror(-stat));
-        }
-        else
-        {
-            if (enqueueNetWrite(std::move(xfer)))
-                spdlog::error("enq write: {}", std::strerror(errno));
-        }
-
-        return 0;
-    }
-
-    int syncWrite(std::unique_ptr<TransferState> xfer)
-    {
-        int stat{ };
-        const auto xferLen = xfer->xferLen;
-
-        for (size_t wlen = 0; wlen < xferLen; )
-        {
-            auto len = ::writev(
-                xfer->fd,
-                xfer->iovs + xfer->iovIndex,
-                2 - static_cast<int>(xfer->iovIndex));
-
-            if (len < 0)
-            {
-                stat = -errno;
-                spdlog::error("socket write: {}", std::strerror(-stat));
-                break;
-            }
+            auto len = readChunk(inFd, buf, blockSize_, fileOffset);
 
             if (!len)
-            {
-                spdlog::error("zero-length write - ending transfer.");
-                stat = -EOF;
                 break;
-            }
 
-            wlen += static_cast<size_t>(len);
+            auto xferLen = std::min(len, segment.end - fileOffset);
 
-            if (wlen < xferLen)
-            {
-                spdlog::info("advancing for short write: {}/{}"
-                    , len
-                    , wlen);
+            spdlog::debug("xfer segment {} from offset {}", xferLen, fileOffset);
 
-                advanceXfer(*xfer, static_cast<size_t>(len));
-            }
+            auto chunkIov = iovec{buf, xferLen};
+            writeChunk(outFd, &chunkIov, 1);
+
+            fileOffset += xferLen;
+
+            ++chunkCount;
+            chunkXfer += xferLen;
         }
 
-        return stat;
-    }
-
-    void handleCqes(size_t required = 1)
-    {
-        const auto hadRequired = !!required;
-
-        while (true)
-        {
-            io_uring_cqe *cqe{ };
-
-            if (required)
-            {
-                if (auto stat = io_uring_wait_cqe(&ring_, &cqe); stat < 0)
-                    throw std::system_error(-stat, std::system_category(), "io_uring_wait_cqe");
-
-                --required;
-            }
-            else
-            {
-                auto stat = io_uring_peek_cqe(&ring_, &cqe);
-
-                if (stat == -EAGAIN)
-                    break;
-            }
-
-            if (!cqe)
-            {
-                if (required)
-                    spdlog::warn("no cqe found, but we still require {}", required);
-
-                return;
-            }
-
-            auto wrappedCqe = CqeWrapper{ring_, cqe};
-
-            auto xfer = std::unique_ptr<TransferState>(
-                reinterpret_cast<TransferState *>(io_uring_cqe_get_data(cqe)));
-
-            if (!xfer)
-                throw std::runtime_error("null data found on reaped cqe.");
-
-            if (cqe->res < 0)
-            {
-                if (cqe->res == -EAGAIN)
-                {
-                    if (auto stat = enqueueNetWritePrepped(std::move(xfer)))
-                    {
-                        throw std::runtime_error(fmt::format(
-                            "unable to handle eagain prepped write: {}."
-                            , std::strerror(-stat)));
-                    }
-
-                    continue;
-                }
-
-                if (cqe->res == -ECANCELED)
-                {
-                    spdlog::info("re-queue canceled write for {} (len: {})."
-                        , xfer->header.fileId
-                        , xfer->xferLen);
-
-                    if (auto stat = enqueueNetWritePrepped(std::move(xfer)))
-                    {
-                        throw std::runtime_error(fmt::format(
-                            "unable to handle prepped write following canceled write: {}."
-                            , std::strerror(-stat)));
-                    }
-
-                    if (hadRequired)
-                        ++required;
-
-                    if (io_uring_submit(&ring_) < 0)
-                        throw std::system_error(errno, std::system_category(), "io_uring_submit");
-
-                    continue;
-                }
-
-                throw std::system_error(-cqe->res, std::system_category(),
-                    fmt::format("cqe failed for offset {} (addr {}): cqe status {}"
-                        , xfer->fileOffset
-                        , xfer->iovs[1].iov_base
-                        , cqe->res));
-            }
-
-            if (cqe->res > 0 &&
-                static_cast<size_t>(cqe->res) != xfer->xferLen)
-            {
-                spdlog::info("re-queue short write for {}: ({}/{})."
-                    , xfer->header.fileId
-                    , cqe->res
-                    , xfer->xferLen);
-
-                advanceXfer(*xfer, static_cast<size_t>(cqe->res));
-
-                spdlog::info(" -> re-queued write for {}"
-                    , xfer->xferLen);
-
-                if (auto stat = enqueueNetWritePrepped(std::move(xfer)))
-                {
-                    throw std::runtime_error(fmt::format(
-                        "unable to handle prepped write following short write: {}."
-                        , std::strerror(-stat)));
-                }
-
-                if (hadRequired)
-                    ++required;
-
-                if (io_uring_submit(&ring_) < 0)
-                    throw std::system_error(errno, std::system_category(), "io_uring_submit");
-
-                continue;
-            }
-
-            --sqeCount_;
-        }
-    }
-
-    struct io_uring_sqe *getSqe()
-    {
-        auto sqe = io_uring_get_sqe(&ring_);
-
-        if (!sqe)
-            throw std::runtime_error("unable to get sqe");
-
-        return sqe;
-    }
-
-    int enqueueNetWrite(std::unique_ptr<TransferState> xfer)
-    {
-        if (xfer->fileOffset > std::numeric_limits<off_t>::max())
-        {
-            throw std::out_of_range(fmt::format(
-                "transfer file offset: {}", xfer->fileOffset));
-        }
-
-        auto sqe = getSqe();
-
-        if (!sqe)
-        {
-            spdlog::info("unable to fetch sqe.");
-            return -EBUSY;
-        }
-
-        io_uring_prep_writev(
-            sqe,
-            xfer->fd,
-            xfer->iovs,
-            2,
-            0);
-
-        spdlog::debug("enqueue net write: {} {}",
-            xfer->fileOffset, xfer->xferLen);
-
-        io_uring_sqe_set_data(sqe, xfer.release());
-        io_uring_sqe_set_flags(sqe, IOSQE_IO_LINK);
-
-        return 0;
-    }
-
-    int enqueueNetWritePrepped(std::unique_ptr<TransferState> xfer)
-    {
-        auto sqe = getSqe();
-
-        if (!sqe)
-        {
-            spdlog::info("unable to fetch sqe.");
-            return -EBUSY;
-        }
-
-        io_uring_prep_writev(
-            sqe,
-            xfer->fd,
-            xfer->iovs + xfer->iovIndex,
-            2 - xfer->iovIndex,
-            0);
-
-        spdlog::debug("enqueue prepped net write: {} {}/{}",
-            xfer->fileOffset, xfer->xferLen, sizeof(wire::ChunkHeader) + xfer->payloadLen);
-
-        io_uring_sqe_set_data(sqe, xfer.release());
-        io_uring_sqe_set_flags(sqe, IOSQE_IO_LINK);
-
-        return 0;
-    }
-
-    void advanceXfer(TransferState &xfer, size_t len)
-    {
-        if (len > xfer.xferLen)
-        {
-            throw std::runtime_error(fmt::format(
-                "advancing xfer > xfer len ({} > {})"
-                , len
-                , xfer.xferLen));
-        }
-
-        xfer.xferLen -= len;
-
-        for (size_t i = xfer.iovIndex; i < 2; ++i)
-        {
-            xfer.iovs[i].iov_base = reinterpret_cast<uint8_t *>(xfer.iovs[i].iov_base) + len;
-            xfer.iovs[i].iov_len -= std::min(len, xfer.iovs[i].iov_len);
-
-            if (!xfer.iovs[i].iov_len)
-            {
-                xfer.iovs[i].iov_base = nullptr;
-                xfer.iovIndex = i + 1;
-            }
-        }
+        return {chunkCount, chunkXfer};
     }
 
     PollSet poll_{ };
-    struct io_uring ring_{ };
+    std::shared_ptr<BufferPool> pool_{ };
     std::unordered_map<int, FdInfo> fdMap_{ };
     std::unordered_map<int, FdInfo>::iterator fdIter_{ };
-    size_t sqeCount_{ };
-    size_t ringDepth_{ };
-    unsigned mtu_{9000};
+    size_t blockSize_{1u << 22};
     bool done_{ };
-    bool useUring_{ };
 };
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -989,6 +1098,8 @@ struct FileAgentConfig
 {
     std::vector<FileInfo> fileInfo;
     std::string root;
+    size_t ringPwr{5};
+    bool enableDio{ };
 };
 
 struct TransferRequest
@@ -1001,18 +1112,41 @@ class FileAgent
 public:
     explicit FileAgent(FileAgentConfig conf)
     {
-        initUring(12);
         initFileState(std::move(conf));
+
+        wrThdStatus_ = std::async(std::launch::async,
+            [this] {
+                using std::chrono::steady_clock;
+                using namespace std::chrono_literals;
+
+                while (!done_)
+                {
+                    if (auto io = wtq_.get(steady_clock::now() + 200ms))
+                        syncWrite(&(*io));
+                }
+
+                spdlog::warn("wr thd done");
+            });
     }
 
-    void cancel()
+    ~FileAgent() noexcept
+    {
+        cancel();
+    }
+
+    void cancel() noexcept
     {
         done_ = true;
+
+        try {
+            wrThdStatus_.get();
+        } catch (...) { }
     }
 
-    int updateFile(unsigned fileId, size_t offset, Buffer buf)
+    int updateFile(const MessageBuffer &buf)
     {
-        auto xfer = initWrite(fileId, offset, std::move(buf));
+        auto fileId = buf.fileId;
+        auto xfer = initWrite(std::move(buf));
 
         if (!xfer)
         {
@@ -1027,17 +1161,25 @@ public:
 
     void drain()
     {
-        auto count = sqeCount_;
+        using namespace std::chrono_literals;
 
-        handleCqes(sqeCount_);
+        cancel();
 
-        spdlog::info("drain {} -> {}", count, sqeCount_);
+        size_t count{ };
+
+        for (count = 0; auto io = wtq_.get(std::chrono::steady_clock::now() + 200ms); )
+        {
+            syncWrite(&(*io));
+            ++count;
+        }
+
+        spdlog::info("drained {} chunks from file agent queue.", count);
     }
 
 private:
     struct IOState
     {
-        Buffer buf{ };
+        MessageBuffer buf{ };
         iovec iov{ };
 
         size_t fileOffset{ };
@@ -1054,67 +1196,63 @@ private:
 
     using FileStateMap = std::unordered_map<unsigned, FileState>;
 
-    void initUring(unsigned lenPwr);
-
     void initFileState(FileAgentConfig conf);
 
-    std::unique_ptr<IOState> initWrite(unsigned fileId, size_t offset, Buffer buf)
+    std::unique_ptr<IOState> initWrite(const MessageBuffer &buf)
     {
-        auto iter = fileMap_.find(fileId);
+        auto iter = fileMap_.find(buf.fileId);
         if (iter == end(fileMap_))
             return nullptr;
 
         auto xfer = std::make_unique<IOState>();
-        xfer->buf = std::move(buf);
-        xfer->fileOffset = offset;
-        xfer->len = xfer->buf.size();
-        xfer->fileId = fileId;
+
+        xfer->fileOffset = buf.fileOffset;
+        xfer->len = buf.payloadLength;
+        xfer->fileId = buf.fileId;
         xfer->fd = iter->second.fd.get();
 
-        xfer->iov.iov_base = xfer->buf.data();
-        xfer->iov.iov_len = xfer->buf.size();
+        xfer->buf = std::move(buf);
+
+        xfer->iov.iov_base = const_cast<void *>(xfer->buf.buf->data());
+        xfer->iov.iov_len = xfer->buf.payloadLength;
 
         return xfer;
     }
 
     int writeChunk(std::unique_ptr<IOState> xfer)
     {
-        if (0)
-        {
-            if (auto stat = syncWrite(std::move(xfer)))
-                spdlog::error("sync write: {}", std::strerror(-stat));
-        }
-        else
-        {
-            if (xferStarted_)
-                handleCqes();
-
-            xferStarted_ = true;
-
-            if (enqueueWrite(std::move(xfer)))
-                spdlog::error("enq write: {}", std::strerror(errno));
-
-            ++sqeCount_;
-
-            if (io_uring_submit(&ring_) < 0)
-                throw std::system_error(errno, std::system_category(), "io_uring_submit");
-        }
+        if (auto stat = asyncWrite(std::move(xfer)))
+            spdlog::error("sync write: {}", std::strerror(-stat));
 
         return 0;
     }
 
-    int syncWrite(std::unique_ptr<IOState> xfer)
+    int asyncWrite(std::unique_ptr<IOState> xfer)
     {
+        if (!done_ && xfer)
+            wtq_.put(std::move(*xfer));
+
+        return 0;
+    }
+
+    int syncWrite(IOState *xfer)
+    {
+        if (!xfer)
+            return 0;
+
         int stat{ };
         const auto xferLen = xfer->len;
 
         for (size_t wlen = 0; wlen < xferLen; )
         {
-            auto len = ::pwritev(
+            spdlog::debug("writev {} {:#x} ({:p}) -> {:#x}"
+                , xfer->fileId, xfer->iov.iov_len, xfer->iov.iov_base, xfer->fileOffset);
+
+            auto len = ::pwrite(
                 xfer->fd,
-                &xfer->iov,
-                1,
-                static_cast<off_t>(xfer->fileOffset));
+                xfer->buf.buf->uint8Data() + wlen,
+                xfer->len - wlen,
+                static_cast<off_t>(xfer->fileOffset + wlen));
 
             if (len < 0)
             {
@@ -1131,206 +1269,21 @@ private:
             }
 
             wlen += static_cast<size_t>(len);
-
-            if (wlen < xferLen)
-            {
-                spdlog::info("advancing for short write: {}/{}"
-                    , wlen
-                    , xferLen);
-
-                advanceXfer(*xfer, static_cast<size_t>(len));
-            }
         }
 
         return stat;
     }
 
-    void handleCqes(size_t required = 1)
-    {
-        const auto hadRequired = !!required;
-
-        while (true)
-        {
-            io_uring_cqe *cqe{ };
-
-            if (required)
-            {
-                if (auto stat = io_uring_wait_cqe(&ring_, &cqe); stat < 0)
-                    throw std::system_error(-stat, std::system_category(), "io_uring_wait_cqe");
-
-                --required;
-            }
-            else
-            {
-                auto stat = io_uring_peek_cqe(&ring_, &cqe);
-
-                if (stat == -EAGAIN)
-                    break;
-            }
-
-            if (!cqe)
-            {
-                if (required)
-                    spdlog::warn("no cqe found, but we still require {}", required);
-
-                return;
-            }
-
-            auto wrappedCqe = CqeWrapper{ring_, cqe};
-
-            auto xfer = std::unique_ptr<IOState>(
-                reinterpret_cast<IOState *>(io_uring_cqe_get_data(cqe)));
-
-            if (!xfer)
-                throw std::runtime_error("null data found on reaped cqe.");
-
-            if (cqe->res < 0)
-            {
-                if (cqe->res == -EAGAIN)
-                {
-                    if (auto stat = enqueueWritePrepped(std::move(xfer)))
-                    {
-                        throw std::runtime_error(fmt::format(
-                            "unable to handle eagain prepped write: {}."
-                            , std::strerror(-stat)));
-                    }
-
-                    continue;
-                }
-
-                throw std::system_error(-cqe->res, std::system_category(),
-                    fmt::format("cqe failed for offset {} (addr {})"
-                        , xfer->fileOffset
-                        , xfer->iov.iov_base));
-            }
-
-            if (cqe->res > 0 &&
-                static_cast<size_t>(cqe->res) != xfer->len)
-            {
-                spdlog::info("re-queue short write for {}: ({}/{})."
-                    , xfer->fileId
-                    , cqe->res
-                    , xfer->len);
-
-                advanceXfer(*xfer, static_cast<size_t>(cqe->res));
-
-                spdlog::info(" -> re-queued write for {}"
-                    , xfer->len);
-
-                if (auto stat = enqueueWritePrepped(std::move(xfer)))
-                {
-                    throw std::runtime_error(fmt::format(
-                        "unable to handle prepped write following short write: {}."
-                        , std::strerror(-stat)));
-                }
-
-                if (hadRequired)
-                    ++required;
-
-                if (io_uring_submit(&ring_) < 0)
-                    throw std::system_error(errno, std::system_category(), "io_uring_submit");
-
-                continue;
-            }
-
-            --sqeCount_;
-        }
-    }
-
-    struct io_uring_sqe *getSqe()
-    {
-        auto sqe = io_uring_get_sqe(&ring_);
-
-        if (!sqe)
-            throw std::runtime_error("unable to get sqe");
-
-        return sqe;
-    }
-
-    int enqueueWrite(std::unique_ptr<IOState> xfer)
-    {
-        if (xfer->fileOffset > std::numeric_limits<off_t>::max())
-        {
-            throw std::out_of_range(fmt::format(
-                "transfer file offset: {}", xfer->fileOffset));
-        }
-
-        auto sqe = getSqe();
-
-        if (!sqe)
-        {
-            spdlog::info("unable to fetch sqe.");
-            return -EBUSY;
-        }
-
-        io_uring_prep_writev(
-            sqe,
-            xfer->fd,
-            &xfer->iov,
-            1,
-            static_cast<off_t>(xfer->fileOffset));
-
-        spdlog::debug("enqueue file write: {} {}",
-            xfer->fileOffset, xfer->len);
-
-        io_uring_sqe_set_data(sqe, xfer.release());
-
-        return 0;
-    }
-
-    int enqueueWritePrepped(std::unique_ptr<IOState> xfer)
-    {
-        auto sqe = getSqe();
-
-        if (!sqe)
-        {
-            spdlog::info("unable to fetch sqe.");
-            return -EBUSY;
-        }
-
-        io_uring_prep_writev(
-            sqe,
-            xfer->fd,
-            &xfer->iov,
-            1,
-            static_cast<off_t>(xfer->fileOffset));
-
-        spdlog::debug("enqueue prepped file write: {} {}/{}",
-            xfer->fileOffset, xfer->len, xfer->buf.size());
-
-        io_uring_sqe_set_data(sqe, xfer.release());
-
-        return 0;
-    }
-
-    void advanceXfer(IOState &xfer, size_t len)
-    {
-        if (len > xfer.len)
-        {
-            throw std::runtime_error(fmt::format(
-                "advancing xfer > xfer len ({} > {})"
-                , len
-                , xfer.len));
-        }
-
-        xfer.len -= len;
-        xfer.fileOffset += len;
-
-        xfer.iov.iov_base = reinterpret_cast<uint8_t *>(xfer.iov.iov_base) + len;
-        xfer.iov.iov_len -= std::min(len, xfer.iov.iov_len);
-    }
-
-    struct io_uring ring_{ };
     FileStateMap fileMap_{ };
-    size_t sqeCount_{ };
-    size_t ringDepth_{ };
+    std::future<void> wrThdStatus_{ };
+    WaitQueue<IOState> wtq_{ };
     bool done_{ };
-    bool xferStarted_{ };
 };
 
 std::vector<FileInfo> getFileInfo(const std::string &path);
 
 draft::util::NetworkTarget parseTarget(const std::string &str);
+size_t parseSize(const std::string &str);
 
 void createTargetFiles(const std::string &root, const std::vector<FileInfo> &infos);
 

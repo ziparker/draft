@@ -29,6 +29,9 @@
 
 namespace draft::cmd {
 
+int compress(int argc, char **argv);
+int decompress(int argc, char **argv);
+int nvcompress(int argc, char **argv);
 int recv(int argc, char **argv);
 int send(int argc, char **argv);
 
