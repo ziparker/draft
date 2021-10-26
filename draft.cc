@@ -46,11 +46,27 @@ namespace {
 
 int dispatchSubcommand(int argc, char **argv)
 {
+    using Cmd = std::function<int(int, char **)>;
     using namespace draft;
 
-    const auto usage = [argv] {
-            std::cout << fmt::format("usage: {} (send|recv) [OPTS]\n"
+    const auto subProgs = std::map<std::string, Cmd>{
+        {"send", cmd::send},
+        {"recv", cmd::recv},
+        #ifdef DRAFT_HAVE_COMPRESS
+        {"compress", cmd::compress},
+        {"decompress", cmd::decompress},
+        #endif
+        #ifdef DRAFT_HAVE_CUDA
+        {"nvcompress", cmd::nvcompress}
+        #endif
+    };
+
+    const auto usage = [argv, &subProgs] {
+            std::cout << fmt::format("usage: {} <subcmd> [OPTS]\n"
                 , ::basename(argv[0]));
+            std::cout << "  subcmds:\n";
+            for (const auto &[name, _] : subProgs)
+                std::cout << "    " << name << "\n";
         };
 
     if (argc < 2)
@@ -61,28 +77,14 @@ int dispatchSubcommand(int argc, char **argv)
 
     auto subProg = std::string{argv[1]};
 
-    if (subProg == "send")
-        return cmd::send(argc, argv);
+    auto cmd = subProgs.find(subProg);
+    if (cmd == end(subProgs))
+    {
+        usage();
+        return 1;
+    }
 
-    if (subProg == "recv")
-        return cmd::recv(argc, argv);
-
-    #ifdef DRAFT_HAVE_COMPRESS
-    if (subProg == "compress")
-        return cmd::compress(argc, argv);
-
-    if (subProg == "decompress")
-        return cmd::decompress(argc, argv);
-    #endif
-
-    #ifdef DRAFT_HAVE_CUDA
-    if (subProg == "nvcompress")
-        return cmd::nvcompress(argc, argv);
-    #endif
-
-    usage();
-
-    return 1;
+    return cmd->second(argc, argv);
 }
 
 }
