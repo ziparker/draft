@@ -93,6 +93,8 @@ int main(int argc, char **argv)
 {
     spdlog::cfg::load_env_levels();
 
+    spdlog::info("draft build {} {}", __DATE__, __TIME__);
+
     try {
         dispatchSubcommand(argc, argv);
     } catch (const std::exception &ex) {
