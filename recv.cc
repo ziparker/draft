@@ -269,9 +269,7 @@ void awaitTransfer(const Options &opts)
     }
 
     if (fileAgent)
-    {
         fileAgent->drain();
-    }
 
     rxMgr.setChunkCallback({ });
     rxMgr.cancel();

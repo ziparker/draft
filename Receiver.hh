@@ -45,6 +45,7 @@ class Receiver
 {
 public:
     using ChunkCallback = std::function<void(Receiver &, const MessageBuffer &)>;
+    using SegmentCallback = std::function<void(Receiver &, const wire::ChunkHeader &)>;
 
     Receiver(ScopedFd fd, ChunkCallback &&cb, size_t rxBufSize = 1u << 16, size_t rxRingPwr = 5, size_t chunkAlignment = 0):
         cb_(std::move(cb)),
@@ -72,6 +73,11 @@ public:
         return fd_.get();
     }
 
+    void setSegmentCallback(SegmentCallback cb)
+    {
+        segmentCb_ = std::move(cb);
+    }
+
 private:
     struct BufferView
     {
@@ -92,7 +98,7 @@ private:
         }
 
         if (!len)
-            return -EOF;
+            return EOF;
 
         if (offset_ + static_cast<size_t>(len) < sizeof(wire::ChunkHeader))
         {
@@ -120,7 +126,9 @@ private:
     {
         const auto maxRx = std::min(
             buf_->size() - offset_,
-            chunk_->fileOffset + chunk_->payloadLength - fileOffset_);
+            chunk_->fileOffset + chunk_->payloadLength - fileOffset_ - offset_);
+
+        spdlog::trace("{}-{} max rx {}", fd_.get(), chunk_->fileId, maxRx);
 
         auto len = ::recv(fd_.get(), buf_->uint8Data() + offset_, maxRx, 0);
 
@@ -133,13 +141,23 @@ private:
         }
 
         if (!len)
-            return -EOF;
+        {
+            finishSegment();
+            return 0;
+        }
 
         size_t alignedLen = offset_ + static_cast<size_t>(len);
         size_t diffLen{ };
 
         if (chunkAlignment_)
         {
+            spdlog::debug("{}-{}: offset {} payload len {} - current offset {}"
+                    , fd_.get()
+                    , chunk_->fileId
+                    , chunk_->fileOffset
+                    , chunk_->payloadLength
+                    , fileOffset_);
+
             if (alignedLen >= chunkAlignment_)
             {
                 if (((offset_ + static_cast<size_t>(len)) & (chunkAlignment_ - 1)))
@@ -151,7 +169,9 @@ private:
             }
             else if (chunk_->fileOffset + chunk_->payloadLength - fileOffset_ > chunkAlignment_)
             {
-                spdlog::debug("skipping write cycle for {} bytes, with {} remaining."
+                spdlog::debug("{}-{}: skipping write cycle for {} bytes, with {} remaining."
+                    , fd_.get()
+                    , chunk_->fileId
                     , alignedLen
                     , chunk_->fileOffset + chunk_->payloadLength - fileOffset_);
 
@@ -169,12 +189,43 @@ private:
         auto buf = std::make_shared<BufferPool::Buffer>(pool_->get());
 
         if (diffLen)
+        {
             memcpy(buf->data(), buf_->uint8Data() + alignedLen, diffLen);
+            spdlog::trace("{}-{}: have {} bytes remaining for disk."
+                , fd_.get(), chunk_->fileId, diffLen);
+        }
 
         buf_ = std::move(buf);
         offset_ = diffLen;
 
         return 0;
+    }
+
+    int flushSegmentData()
+    {
+        if (offset_)
+        {
+            spdlog::debug("{}-{}: flushing {} bytes bound for disk."
+                , fd_.get()
+                , chunk_->fileId
+                , offset_);
+
+            processChunk(buf_, util::roundBlockSize(offset_));
+            offset_ = 0;
+        }
+
+        return 0;
+    }
+
+    void finishSegment()
+    {
+        flushSegmentData();
+
+        fileOffset_ = 0;
+        chunk_ = { };
+
+        buf_ = std::make_shared<BufferPool::Buffer>(pool_->get());
+        offset_ = 0;
     }
 
     bool chunkValid(const wire::ChunkHeader &header) const noexcept
@@ -198,13 +249,16 @@ private:
 
         fileOffset_ += len;
 
-        if (fileOffset_ == chunk_->fileOffset + chunk_->payloadLength)
+        if (fileOffset_ >= chunk_->fileOffset + chunk_->payloadLength)
         {
             spdlog::info("{} finished receiving segment for file id {}: {}/{}"
                 , fd_.get()
                 , chunk_->fileId
                 , fileOffset_
                 , chunk_->fileOffset + chunk_->payloadLength);
+
+            if (segmentCb_)
+                segmentCb_(*this, *chunk_);
 
             fileOffset_ = 0;
             chunk_ = { };
@@ -219,6 +273,7 @@ private:
     size_t offset_{ };
     size_t fileOffset_{ };
     size_t chunkAlignment_{ };
+    SegmentCallback segmentCb_;
 };
 
 class ReceiverManager
@@ -287,6 +342,11 @@ public:
         cb_ = std::move(cb);
     }
 
+    void setSegmentCallback(Receiver::SegmentCallback cb)
+    {
+        segmentCb_ = std::move(cb);
+    }
+
 private:
     struct RxInfo
     {
@@ -320,6 +380,8 @@ private:
             rxRingPwr_,
             BlockSize);
 
+        rx->setSegmentCallback(segmentCb_);
+
         auto rxFd = rx->fd();
         receivers_.insert({rxFd,
             RxInfo{
@@ -351,7 +413,7 @@ private:
                 [[fallthrough]];
             case -EINTR:
                 return true;
-            case -EOF:
+            case EOF:
                 spdlog::info("connection {} closed.", rx.fd());
                 return false;
             default:
@@ -376,6 +438,7 @@ private:
     std::vector<ScopedFd> serviceFds_;
     std::unordered_map<int, RxInfo> receivers_;
     PollSet pollSet_;
+    Receiver::SegmentCallback segmentCb_;
     size_t rxBufSize_{1u << 16};
     size_t rxRingPwr_{5};
     size_t count_{ };

@@ -1174,6 +1174,8 @@ public:
         }
 
         spdlog::info("drained {} chunks from file agent queue.", count);
+
+        truncateFiles();
     }
 
 private:
@@ -1245,8 +1247,8 @@ private:
 
         for (size_t wlen = 0; wlen < xferLen; )
         {
-            spdlog::debug("writev {} {:#x} ({:p}) -> {:#x}"
-                , xfer->fileId, xfer->iov.iov_len, xfer->iov.iov_base, xfer->fileOffset);
+            spdlog::debug("writev {}: {} -> {} ({:#x})"
+                , xfer->fileId, xfer->len - wlen, xfer->fileOffset, xfer->fileOffset);
 
             auto len = ::pwrite(
                 xfer->fd,
@@ -1254,10 +1256,17 @@ private:
                 xfer->len - wlen,
                 static_cast<off_t>(xfer->fileOffset + wlen));
 
+            spdlog::info("file id {} pwrite {} -> {}: {}"
+                , xfer->fileId, xfer->len - wlen, xfer->fileOffset + wlen, len);
+
             if (len < 0)
             {
                 stat = -errno;
-                spdlog::error("file id {} write: {}", xfer->fileId, std::strerror(-stat));
+                spdlog::error("file id {} pwrite offset {} len {}: {}"
+                    , xfer->fileId
+                    , xfer->fileOffset + wlen
+                    , xfer->len - wlen
+                    , std::strerror(-stat));
                 break;
             }
 
@@ -1272,6 +1281,16 @@ private:
         }
 
         return stat;
+    }
+
+    void truncateFiles()
+    {
+        for (auto &[id, state] : fileMap_)
+        {
+            const auto sz = state.info.status.size;
+            spdlog::info("FileAgent: trimming file id {} to size {}", id, sz);
+            ftruncate(state.fd.get(), static_cast<off_t>(sz));
+        }
     }
 
     FileStateMap fileMap_{ };
