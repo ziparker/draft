@@ -430,8 +430,11 @@ void createTargetFiles(const std::string &root, const std::vector<FileInfo> &inf
         if (fd.get() < 0)
             throw std::system_error(errno, std::system_category(), "createTargetFiles: open");
 
-        if (posix_fallocate(fd.get(), 0, static_cast<off_t>(info.status.size)))
-            throw std::system_error(errno, std::system_category(), "createTargetFiles: posix_fallocate");
+        if (auto stat = posix_fallocate(fd.get(), 0, static_cast<off_t>(info.status.size)))
+        {
+            spdlog::error("posix fallocate err {}", stat);
+            throw std::system_error(stat, std::system_category(), "createTargetFiles: posix_fallocate");
+        }
     }
 }
 

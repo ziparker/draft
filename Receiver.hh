@@ -151,6 +151,21 @@ private:
 
         if (chunkAlignment_)
         {
+            const auto haveDataRemaining =
+                chunk_->fileOffset + chunk_->payloadLength - fileOffset_ > chunkAlignment_;
+
+            if (alignedLen < buf_->size() - BlockSize && haveDataRemaining)
+            {
+                spdlog::debug("{}-{} waiting for data to buffer {}/{}"
+                    , fd_.get()
+                    , chunk_->fileId
+                    , static_cast<size_t>(len) + offset_
+                    , buf_->size());
+
+                //offset_ += static_cast<size_t>(len);
+                //return 0;
+            }
+
             spdlog::debug("{}-{}: offset {} payload len {} - current offset {}"
                     , fd_.get()
                     , chunk_->fileId
