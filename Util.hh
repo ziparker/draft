@@ -691,6 +691,8 @@ private:
     bool done_{ };
 };
 
+using BufferPoolPtr = std::shared_ptr<BufferPool>;
+
 struct MessageBuffer
 {
     std::shared_ptr<BufferPool::Buffer> buf;
