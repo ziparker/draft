@@ -10,6 +10,8 @@ struct BDesc
     size_t len{ };
 };
 
+using BufQueue = WaitQueue<BDesc>;
+
 class Reader
 {
 public:
@@ -22,7 +24,7 @@ public:
     using Buffer = BufferPool::Buffer;
     using BufferPtr = std::shared_ptr<BufferPool::Buffer>;
 
-    Reader(int fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, WaitQueue<BDesc> *queue):
+    Reader(int fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue *queue):
         fd_{fd},
         segment_{segment},
         pool_{pool},
@@ -31,11 +33,14 @@ public:
     {
     }
 
-    void runOnce()
+    bool runOnce()
     {
         auto buf = std::make_unique<Buffer>(pool_->get());
 
         auto len = read(*buf);
+
+        if (!len)
+            return false;
 
         queue_->put({
             std::move(buf),
@@ -46,11 +51,11 @@ public:
 
         segment_.offset += len;
         segment_.len -= len;
+
+        return true;
     }
 
 private:
-    using Queue = WaitQueue<BDesc>;
-
     size_t read(Buffer &buf)
     {
         auto len = roundBlockSize(segment_.len - segment_.offset);
@@ -62,7 +67,7 @@ private:
     int fd_{-1};
     Segment segment_{ };
     BufferPoolPtr pool_{ };
-    Queue *queue_{ };
+    BufQueue *queue_{ };
     unsigned fileId_{ };
 };
 
@@ -74,6 +79,8 @@ public:
         //auto desc = queue.get();
         //write(desc);
     }
+
+private:
 };
 
 class Receiver
@@ -101,7 +108,21 @@ public:
 
 // readers -> queue -> Senders -> net -> receivers -> queue -> writers -> disk
 
-int main()
+int main(int, char **argv)
 {
+    using namespace draft::util;
+    namespace fs = std::filesystem;
+
+    auto filename = std::string{argv[1]};
+    auto pool = BufferPool::make(1u << 21, 35);
+    auto queue = WaitQueue<BDesc>{ };
+    auto fd = ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)};
+    auto fileSz = fs::file_size(filename);
+
+    auto diskRead = Reader(fd.get(), 1, {0, fileSz}, pool, &queue);
+
+    while (diskRead.runOnce())
+        ;
+
     return 0;
 }
