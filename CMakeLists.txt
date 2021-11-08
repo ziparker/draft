@@ -121,6 +121,9 @@ target_link_libraries(draft PRIVATE draftutil spdlog::spdlog)
 add_executable(prep prep.cc)
 target_link_libraries(prep PRIVATE draftutil spdlog::spdlog)
 
+add_executable(xx xx.cc)
+target_link_libraries(xx PRIVATE draftutil spdlog::spdlog)
+
 if (DRAFT_ENABLE_TESTS)
     find_package(GTest REQUIRED)
     include(GoogleTest)
