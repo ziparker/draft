@@ -82,7 +82,10 @@ public:
         
     void runOnce()
     {
-        if (auto desc = queue_->get())
+        using namespace std::chrono_literals;
+        using Clock = std::chrono::steady_clock;
+
+        while (auto desc = queue_->get(Clock::now() + 1ms))
             write(std::move(*desc));
     }
 
@@ -136,13 +139,19 @@ int main(int, char **argv)
     auto filename = std::string{argv[1]};
     auto pool = BufferPool::make(1u << 21, 35);
     auto queue = WaitQueue<BDesc>{ };
+
+    auto netFd = net::connectTcp("localhost", 5000);
+    auto sender = Sender(netFd.get(), queue);
+
     auto fd = ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)};
     auto fileSz = fs::file_size(filename);
 
     auto diskRead = Reader(fd.get(), 1, {0, fileSz}, pool, queue);
 
     while (diskRead.runOnce())
-        ;
+        sender.runOnce();
+
+    sender.runOnce();
 
     return 0;
 }
