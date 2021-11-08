@@ -24,11 +24,11 @@ public:
     using Buffer = BufferPool::Buffer;
     using BufferPtr = std::shared_ptr<BufferPool::Buffer>;
 
-    Reader(int fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue *queue):
+    Reader(int fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue &queue):
         fd_{fd},
         segment_{segment},
         pool_{pool},
-        queue_{queue},
+        queue_{&queue},
         fileId_{fileId}
     {
     }
@@ -74,13 +74,33 @@ private:
 class Sender
 {
 public:
+    Sender(int fd, BufQueue &queue):
+        queue_(&queue),
+        fd_(fd)
+    {
+    }
+        
     void runOnce()
     {
-        //auto desc = queue.get();
-        //write(desc);
+        if (auto desc = queue_->get())
+            write(std::move(*desc));
     }
 
 private:
+    size_t write(BDesc desc)
+    {
+        auto header = wire::ChunkHeader{ };
+
+        iovec iov[2] = {
+            {&header, sizeof(header)},
+            {desc.buf->data(), desc.len}
+        };
+
+        return writeChunk(fd_, iov, 2);
+    }
+
+    BufQueue *queue_{ };
+    int fd_{-1};
 };
 
 class Receiver
@@ -119,7 +139,7 @@ int main(int, char **argv)
     auto fd = ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)};
     auto fileSz = fs::file_size(filename);
 
-    auto diskRead = Reader(fd.get(), 1, {0, fileSz}, pool, &queue);
+    auto diskRead = Reader(fd.get(), 1, {0, fileSz}, pool, queue);
 
     while (diskRead.runOnce())
         ;
