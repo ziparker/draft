@@ -84,10 +84,7 @@ public:
         
     void runOnce()
     {
-        using namespace std::chrono_literals;
-        using Clock = std::chrono::steady_clock;
-
-        while (auto desc = queue_->get(Clock::now() + 1ms))
+        while (auto desc = queue_->tryGet())
             write(std::move(*desc));
     }
 
@@ -186,11 +183,33 @@ private:
 class Writer
 {
 public:
+    using Buffer = BufferPool::Buffer;
+
+    Writer(int fd, BufQueue &queue):
+        queue_(&queue),
+        fd_(fd)
+    {
+    }
+        
     void runOnce()
     {
-        //auto desc = queue.get();
-        //write(desc);
+        while (auto desc = queue_->tryGet())
+            write(std::move(*desc));
     }
+
+private:
+    size_t write(BDesc desc)
+    {
+        iovec iov{
+            desc.buf->data(),
+            desc.len
+        };
+
+        return writeChunk(fd_, &iov, 1, desc.offset);
+    }
+
+    BufQueue *queue_{ };
+    int fd_{-1};
 };
 
 }
