@@ -10,19 +10,19 @@ struct BDesc
     size_t len{ };
 };
 
+struct Segment
+{
+    size_t offset{ };
+    size_t len{ };
+};
+
 using BufQueue = WaitQueue<BDesc>;
+using BufferPtr = std::shared_ptr<BufferPool::Buffer>;
 
 class Reader
 {
 public:
-    struct Segment
-    {
-        size_t offset{ };
-        size_t len{ };
-    };
-
     using Buffer = BufferPool::Buffer;
-    using BufferPtr = std::shared_ptr<BufferPool::Buffer>;
 
     Reader(int fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue &queue):
         fd_{fd},
@@ -74,6 +74,8 @@ private:
 class Sender
 {
 public:
+    using Buffer = BufferPool::Buffer;
+
     Sender(int fd, BufQueue &queue):
         queue_(&queue),
         fd_(fd)
@@ -109,12 +111,82 @@ private:
 class Receiver
 {
 public:
+    using Buffer = BufferPool::Buffer;
+
     void runOnce()
     {
-        //auto buf = pool.get();
-        //auto len = read(buf);
-        //queue.put({std::move(buf), len});
+        if (!haveHeader_)
+        {
+            if (!readHeader())
+                return;
+
+            buf_ = pool_->get();
+            offset_ = 0;
+        }
+
+        if (read())
+        {
+            queue_->put({
+                std::make_shared<Buffer>(std::move(buf_)),
+                header_.fileId,
+                header_.fileOffset,
+                header_.payloadLength
+            });
+
+            haveHeader_ = false;
+        }
     }
+
+private:
+    bool readHeader()
+    {
+        auto buf = reinterpret_cast<uint8_t *>(&header_) + offset_;
+        auto sz = sizeof(header_) - offset_;
+
+        auto len = ::read(fd_, buf, sz);
+
+        if (len < 0)
+            throw std::system_error(errno, std::system_category(), "read");
+
+        if (!len)
+            return false;
+
+        if (static_cast<size_t>(len) + offset_ == sizeof(header_))
+        {
+            haveHeader_ = true;
+            return true;
+        }
+
+        offset_ += static_cast<size_t>(len);
+
+        return false;
+    }
+
+    bool read()
+    {
+        auto len = ::read(fd_, buf_.uint8Data() + offset_, buf_.size() - offset_);
+
+        if (len < 0)
+            throw std::system_error(errno, std::system_category(), "read");
+
+        if (!len)
+            return false;
+
+        offset_ += static_cast<size_t>(len);
+
+        if (offset_ == buf_.size())
+            return true;
+
+        return false;
+    }
+
+    BufferPoolPtr pool_{ };
+    BufQueue *queue_{ };
+    wire::ChunkHeader header_{ };
+    Buffer buf_{ };
+    size_t offset_{ };
+    int fd_{-1};
+    bool haveHeader_{ };
 };
 
 class Writer
