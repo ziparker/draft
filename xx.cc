@@ -1,3 +1,5 @@
+#include <signal.h>
+
 #include "Util.hh"
 
 namespace draft::util {
@@ -14,6 +16,11 @@ struct Segment
 {
     size_t offset{ };
     size_t len{ };
+};
+
+struct TransferInfo
+{
+    std::unordered_map<unsigned, ScopedFd> fileMap;
 };
 
 using BufQueue = WaitQueue<BDesc>;
@@ -82,10 +89,12 @@ public:
     {
     }
         
-    void runOnce()
+    bool runOnce()
     {
         while (auto desc = queue_->tryGet())
             write(std::move(*desc));
+
+        return true;
     }
 
 private:
@@ -110,12 +119,12 @@ class Receiver
 public:
     using Buffer = BufferPool::Buffer;
 
-    void runOnce()
+    bool runOnce()
     {
         if (!haveHeader_)
         {
-            if (!readHeader())
-                return;
+            if (auto stat = readHeader(); stat <= 0)
+                return stat == EOF ? false : true;
 
             buf_ = pool_->get();
             offset_ = 0;
@@ -132,10 +141,12 @@ public:
 
             haveHeader_ = false;
         }
+
+        return true;
     }
 
 private:
-    bool readHeader()
+    int readHeader()
     {
         auto buf = reinterpret_cast<uint8_t *>(&header_) + offset_;
         auto sz = sizeof(header_) - offset_;
@@ -145,15 +156,18 @@ private:
         if (len < 0)
             throw std::system_error(errno, std::system_category(), "read");
 
+        if (!len)
+            return EOF;
+
         offset_ += static_cast<size_t>(len);
 
         if (offset_ >= sizeof(header_))
         {
             haveHeader_ = true;
-            return true;
+            return 1;
         }
 
-        return false;
+        return 0;
     }
 
     bool read()
@@ -191,10 +205,12 @@ public:
     {
     }
         
-    void runOnce()
+    bool runOnce()
     {
         while (auto desc = queue_->tryGet())
             write(std::move(*desc));
+
+        return true;
     }
 
 private:
@@ -212,6 +228,64 @@ private:
     int fd_{-1};
 };
 
+class Executor
+{
+public:
+    template <typename ...Args>
+    Executor(Args &&...args)
+    {
+        (add(std::forward<Args>(args)), ...);
+    }
+
+    template <typename T>
+    void add(T &&runnable)
+    {
+        runq_.push_back(
+            std::make_unique<Runnable_<T>>(std::forward<T>(runnable)));
+    }
+
+    void runOnce()
+    {
+        for (auto &r : runq_)
+            r->runOnce();
+    }
+
+private:
+    class Runnable
+    {
+    public:
+        virtual ~Runnable() = default;
+        virtual void runOnce() = 0;
+    };
+
+    template <typename T>
+    class Runnable_: public Runnable
+    {
+    public:
+        Runnable_(T t):
+            t_(std::move(t))
+        {
+        }
+
+    private:
+        void runOnce() override
+        {
+            t_.runOnce();
+        }
+
+        T t_;
+    };
+
+    std::vector<std::unique_ptr<Runnable>> runq_;
+};
+
+sig_atomic_t done_;
+
+void handleSig(int)
+{
+    done_ = 1;
+}
+
 }
 
 // readers -> queue -> Senders -> net -> receivers -> queue -> writers -> disk
@@ -220,6 +294,10 @@ int main(int, char **argv)
 {
     using namespace draft::util;
     namespace fs = std::filesystem;
+
+    struct sigaction action{ };
+    action.sa_handler = handleSig;
+    sigaction(SIGINT, &action, nullptr);
 
     auto filename = std::string{argv[1]};
     auto pool = BufferPool::make(1u << 21, 35);
@@ -233,10 +311,21 @@ int main(int, char **argv)
 
     auto diskRead = Reader(fd.get(), 1, {0, fileSz}, pool, queue);
 
-    while (diskRead.runOnce())
-        sender.runOnce();
+    auto diskReaders = Executor{
+        std::move(diskRead)
+    };
 
-    sender.runOnce();
+    auto netSenders = Executor{
+        std::move(sender)
+    };
+
+    while (!done_)
+    {
+        diskReaders.runOnce();
+        netSenders.runOnce();
+    }
+
+    netSenders.runOnce();
 
     return 0;
 }
