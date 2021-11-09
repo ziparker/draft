@@ -148,16 +148,13 @@ private:
         if (len < 0)
             throw std::system_error(errno, std::system_category(), "read");
 
-        if (!len)
-            return false;
+        offset_ += static_cast<size_t>(len);
 
-        if (static_cast<size_t>(len) + offset_ == sizeof(header_))
+        if (offset_ >= sizeof(header_))
         {
             haveHeader_ = true;
             return true;
         }
-
-        offset_ += static_cast<size_t>(len);
 
         return false;
     }
@@ -169,12 +166,9 @@ private:
         if (len < 0)
             throw std::system_error(errno, std::system_category(), "read");
 
-        if (!len)
-            return false;
-
         offset_ += static_cast<size_t>(len);
 
-        if (offset_ == buf_.size())
+        if (offset_ >= header_.payloadLength)
             return true;
 
         return false;
