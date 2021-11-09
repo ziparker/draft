@@ -132,6 +132,49 @@ inline size_t writeChunk(int fd, iovec *iov, size_t iovCount)
     return written;
 }
 
+inline size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset)
+{
+    auto written = size_t{ };
+
+    while (iovCount)
+    {
+        if (offset > static_cast<size_t>(std::numeric_limits<off_t>::max()))
+        {
+            throw std::range_error("writeChunk offset is out of off_t range.");
+        }
+
+        const auto len = ::pwritev(fd, iov, iovCount, static_cast<off_t>(offset));
+
+        if (len < 0)
+            throw std::system_error(errno, std::system_category(), "write");
+
+        if (!len)
+            break;
+
+        auto ulen = static_cast<size_t>(len);
+
+        while (ulen && iovCount)
+        {
+            const auto adv = std::min(iov->iov_len, ulen);
+            iov->iov_base = reinterpret_cast<uint8_t *>(iov->iov_base) + adv;
+            iov->iov_len -= adv;
+
+            ulen -= adv;
+
+            if (!iov->iov_len)
+            {
+                ++iov;
+                --iovCount;
+            }
+        }
+
+        offset += ulen;
+        written += ulen;
+    }
+
+    return written;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Buffer
 
@@ -273,6 +316,21 @@ public:
         return doGet(&deadline);
     }
 
+    ReturnType tryGet()
+    {
+        const auto op = [this]()
+            -> std::remove_reference_t<decltype(q_.front())> {
+            if (q_.empty())
+                return { };
+
+            auto t = std::move(q_.front());
+            q_.pop_front();
+            return t;
+        };
+
+        return tryOp(op);
+    }
+
     void cancel() noexcept
     {
         done_ = true;
@@ -386,6 +444,25 @@ private:
 
         if (!op)
             return { };
+
+        return op();
+    }
+
+    auto tryOp(const std::function<Value()> &op, bool *timedOut = nullptr)
+        -> std::optional<Value>
+    {
+        if (timedOut)
+            *timedOut = false;
+
+        Lock lk(mtx_, std::defer_lock_t{ });
+
+        if (!lk.try_lock())
+        {
+            if (timedOut)
+                *timedOut = true;
+
+            return { };
+        }
 
         return op();
     }

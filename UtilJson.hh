@@ -42,6 +42,7 @@ void from_json(const nlohmann::json &j, FileInfo &info);
 Buffer generateTransferRequestMsg(std::vector<FileInfo> info);
 
 TransferRequest deserializeTransferRequest(const Buffer &buf);
+TransferRequest deserializeTransferRequest(const std::vector<uint8_t> &buf);
 
 }
 

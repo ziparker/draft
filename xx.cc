@@ -101,6 +101,7 @@ private:
     size_t write(BDesc desc)
     {
         auto header = wire::ChunkHeader{ };
+        // TODO: fill-in info
 
         iovec iov[2] = {
             {&header, sizeof(header)},
@@ -238,10 +239,12 @@ public:
     }
 
     template <typename T>
-    void add(T &&runnable)
+    Executor &add(T &&runnable)
     {
         runq_.push_back(
             std::make_unique<Runnable_<T>>(std::forward<T>(runnable)));
+
+        return *this;
     }
 
     void runOnce()
@@ -279,6 +282,64 @@ private:
     std::vector<std::unique_ptr<Runnable>> runq_;
 };
 
+class InfoReceiver
+{
+public:
+    explicit InfoReceiver(int fd):
+        fd_(fd)
+    {
+    }
+
+    bool runOnce()
+    {
+        if (buf_.size() - offset_ >= 4096)
+            buf_.resize(buf_.size() + 4096;
+
+        auto data = buf_.data() + offset_;
+        auto sz = buf_.size() - offset_;
+
+        auto len = ::recv(fd_, data, sz);
+        if (len < 0)
+            throw std::system_error(errno, std::system_category(), "recv");
+
+        offset_ += static_cast<size_t>(len);
+
+        if (!len)
+        {
+            buf_.resize(offset_);
+            haveInfo_ = true;
+            return true;
+        }
+
+        return false;
+    }
+
+    TransferRequest info() const
+    {
+        return deserializeTransferRequest({buf_.data(), buf_.size()});
+    }
+
+private:
+    std::vector<uint8_t> buf_{ };
+    int fd_{-1};
+};
+
+TransferRequest awaitTransferRequest(int fd)
+{
+    auto rx = InfoReceiver{};
+
+    while (!rx.runOnce())
+        ;
+
+    return rx.info();
+}
+
+void sendTransferRequest(int fd, const std::vector<FileInfo> &info)
+{
+    auto request = util::generateTransferRequestMsg(fileInfo);
+    net::writeAll(fd.get(), request.data(), request.size());
+}
+
 sig_atomic_t done_;
 
 void handleSig(int)
@@ -290,22 +351,20 @@ void handleSig(int)
 
 // readers -> queue -> Senders -> net -> receivers -> queue -> writers -> disk
 
-int main(int, char **argv)
+void recvChunks()
 {
-    using namespace draft::util;
-    namespace fs = std::filesystem;
-
-    struct sigaction action{ };
-    action.sa_handler = handleSig;
-    sigaction(SIGINT, &action, nullptr);
-
-    auto filename = std::string{argv[1]};
+    // per-session:
     auto pool = BufferPool::make(1u << 21, 35);
     auto queue = WaitQueue<BDesc>{ };
 
     auto netFd = net::connectTcp("localhost", 5000);
     auto sender = Sender(netFd.get(), queue);
 
+    auto netSenders = Executor{
+        std::move(sender)
+    };
+
+    // per-file:
     auto fd = ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)};
     auto fileSz = fs::file_size(filename);
 
@@ -315,10 +374,7 @@ int main(int, char **argv)
         std::move(diskRead)
     };
 
-    auto netSenders = Executor{
-        std::move(sender)
-    };
-
+    // send file:
     while (!done_)
     {
         diskReaders.runOnce();
@@ -326,6 +382,88 @@ int main(int, char **argv)
     }
 
     netSenders.runOnce();
+}
+
+int recvCmd(int, char **argv)
+{
+    using namespace draft::util;
+    namespace fs = std::filesystem;
+
+    auto info = awaitTransferRequest(
+        net::bindTcp("localhost", 4000));
+
+    util::createTargetFiles(".", info);
+
+    auto fileMap = std::unordered_map<unsigned id, ScopedFd>{ };
+
+    return 0;
+}
+
+void sendFile(const std::string &filename, unsigned id)
+{
+    // per-session:
+    auto pool = BufferPool::make(1u << 21, 35);
+    auto queue = WaitQueue<BDesc>{ };
+
+    auto netFd = net::connectTcp("localhost", 5000);
+    auto sender = Sender(netFd.get(), queue);
+
+    auto netSenders = Executor{
+        std::move(sender)
+    };
+
+    // per-file:
+    auto fd = ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)};
+    auto fileSz = fs::file_size(filename);
+
+    auto diskRead = Reader(fd.get(), 1, {0, fileSz}, pool, queue);
+
+    auto diskReaders = Executor{
+        std::move(diskRead)
+    };
+
+    // send file:
+    while (!done_)
+    {
+        diskReaders.runOnce();
+        netSenders.runOnce();
+    }
+
+    netSenders.runOnce();
+}
+
+int sendCmd(int, char **argv)
+{
+    const auto path = std::string{argv[1]};
+    auto fileInfo = util::getFileInfo(path);
+
+    auto fd = net::connectTcp("localhost", 4000);
+    sendTransferRequest(fileInfo);
+
+    for (const auto &info : fileInfo)
+    {
+        if (S_ISDIR(info.status.mode))
+            continue;
+
+        sendFile(info.path, info.id);
+    }
+
+    return 0;
+}
+
+int main(int argc, char **argv)
+{
+    struct sigaction action{ };
+    action.sa_handler = handleSig;
+    sigaction(SIGINT, &action, nullptr);
+
+    const auto cmd = std::string{argv[1]};
+    if (cmd == "rx")
+        recvCmd(argc - 1, argv + 1);
+    else if (cmd == "tx")
+        sendCmd(argc - 1, argv + 1);
+    else
+        return 1;
 
     return 0;
 }

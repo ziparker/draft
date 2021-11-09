@@ -49,6 +49,11 @@ static_assert(alignof(Frame) == 8);
 
 struct ChunkHeader
 {
+    enum Flag
+    {
+        More = 1
+    };
+
     static constexpr size_t BlockSize = 4096u;
 
     static constexpr uint64_t Magic = 0x55aa'aa55'da7a'0000;
@@ -59,7 +64,8 @@ struct ChunkHeader
     uint64_t fileOffset{ };
     uint64_t payloadLength{ };
     uint16_t fileId{ };
-    uint8_t pad0[4]{ };
+    uint8_t flags{ };
+    uint8_t pad0[3]{ };
     uint8_t pad_align[BlockSize - 32]{ };
 };
 
