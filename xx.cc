@@ -122,6 +122,12 @@ class Receiver
 public:
     using Buffer = BufferPool::Buffer;
 
+    Receiver(int fd, BufQueue &queue):
+        queue_(&queue),
+        fd_(fd)
+    {
+    }
+
     bool runOnce()
     {
         if (!haveHeader_)
@@ -405,7 +411,7 @@ int recvCmd(int, char **)
     return 0;
 }
 
-void sendFile(const std::string &filename, unsigned id)
+void sendFile(const std::string &filename, unsigned)
 {
     using namespace draft::util;
     namespace fs = std::filesystem;
@@ -448,10 +454,10 @@ int sendCmd(int, char **argv)
     const auto path = std::string{argv[1]};
     spdlog::info("send path {}", path);
 
-    auto fileInfo = util::getFileInfo(path);
+    auto fileInfo = getFileInfo(path);
 
     auto fd = net::connectTcp("localhost", 4000);
-    sendTransferRequest(fileInfo);
+    sendTransferRequest(fd.get(), fileInfo);
 
     for (const auto &info : fileInfo)
     {
@@ -466,6 +472,8 @@ int sendCmd(int, char **argv)
 
 int main(int argc, char **argv)
 {
+    using namespace draft::util;
+
     struct sigaction action{ };
     action.sa_handler = handleSig;
     sigaction(SIGINT, &action, nullptr);
