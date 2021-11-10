@@ -1,6 +1,8 @@
 #include <signal.h>
+#include <sys/socket.h>
 
 #include "Util.hh"
+#include "UtilJson.hh"
 
 namespace draft::util {
 
@@ -293,12 +295,12 @@ public:
     bool runOnce()
     {
         if (buf_.size() - offset_ >= 4096)
-            buf_.resize(buf_.size() + 4096;
+            buf_.resize(buf_.size() + 4096);
 
         auto data = buf_.data() + offset_;
         auto sz = buf_.size() - offset_;
 
-        auto len = ::recv(fd_, data, sz);
+        auto len = ::recv(fd_, data, sz, 0);
         if (len < 0)
             throw std::system_error(errno, std::system_category(), "recv");
 
@@ -316,17 +318,19 @@ public:
 
     TransferRequest info() const
     {
-        return deserializeTransferRequest({buf_.data(), buf_.size()});
+        return deserializeTransferRequest(Buffer{buf_.data(), buf_.size()});
     }
 
 private:
     std::vector<uint8_t> buf_{ };
+    size_t offset_{ };
     int fd_{-1};
+    bool haveInfo_{ };
 };
 
-TransferRequest awaitTransferRequest(int fd)
+TransferRequest awaitTransferRequest(ScopedFd fd)
 {
-    auto rx = InfoReceiver{};
+    auto rx = InfoReceiver{fd.get()};
 
     while (!rx.runOnce())
         ;
@@ -336,8 +340,8 @@ TransferRequest awaitTransferRequest(int fd)
 
 void sendTransferRequest(int fd, const std::vector<FileInfo> &info)
 {
-    auto request = util::generateTransferRequestMsg(fileInfo);
-    net::writeAll(fd.get(), request.data(), request.size());
+    auto request = util::generateTransferRequestMsg(info);
+    util::net::writeAll(fd, request.data(), request.size());
 }
 
 sig_atomic_t done_;
@@ -353,54 +357,59 @@ void handleSig(int)
 
 void recvChunks()
 {
+    using namespace draft::util;
+    namespace fs = std::filesystem;
+
     // per-session:
     auto pool = BufferPool::make(1u << 21, 35);
     auto queue = WaitQueue<BDesc>{ };
 
     auto netFd = net::connectTcp("localhost", 5000);
-    auto sender = Sender(netFd.get(), queue);
+    auto receiver = Receiver(netFd.get(), queue);
 
-    auto netSenders = Executor{
-        std::move(sender)
+    auto netReceivers = Executor{
+        std::move(receiver)
     };
 
-    // per-file:
-    auto fd = ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)};
-    auto fileSz = fs::file_size(filename);
+    #if 0
+    auto diskWriter = Writer(fd.get(), queue);
 
-    auto diskRead = Reader(fd.get(), 1, {0, fileSz}, pool, queue);
-
-    auto diskReaders = Executor{
-        std::move(diskRead)
+    auto diskWriters = Executor{
+        std::move(diskWriter)
     };
 
-    // send file:
+    // recv file:
     while (!done_)
     {
-        diskReaders.runOnce();
-        netSenders.runOnce();
+        netReceivers.runOnce();
+        diskWriters.runOnce();
     }
 
-    netSenders.runOnce();
+    diskWriters.runOnce();
+    #endif
 }
 
-int recvCmd(int, char **argv)
+int recvCmd(int, char **)
 {
     using namespace draft::util;
-    namespace fs = std::filesystem;
+
+    spdlog::info("recv");
 
     auto info = awaitTransferRequest(
         net::bindTcp("localhost", 4000));
 
-    util::createTargetFiles(".", info);
+    createTargetFiles(".", info.config.fileInfo);
 
-    auto fileMap = std::unordered_map<unsigned id, ScopedFd>{ };
+    auto fileMap = std::unordered_map<unsigned, ScopedFd>{ };
 
     return 0;
 }
 
 void sendFile(const std::string &filename, unsigned id)
 {
+    using namespace draft::util;
+    namespace fs = std::filesystem;
+
     // per-session:
     auto pool = BufferPool::make(1u << 21, 35);
     auto queue = WaitQueue<BDesc>{ };
@@ -434,7 +443,11 @@ void sendFile(const std::string &filename, unsigned id)
 
 int sendCmd(int, char **argv)
 {
+    using namespace draft::util;
+
     const auto path = std::string{argv[1]};
+    spdlog::info("send path {}", path);
+
     auto fileInfo = util::getFileInfo(path);
 
     auto fd = net::connectTcp("localhost", 4000);
