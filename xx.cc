@@ -208,6 +208,7 @@ class Writer
 public:
     using Buffer = BufferPool::Buffer;
 
+    // TODO: use fd map instead of fd
     Writer(int fd, BufQueue &queue):
         queue_(&queue),
         fd_(fd)
@@ -361,7 +362,7 @@ void handleSig(int)
 
 // readers -> queue -> Senders -> net -> receivers -> queue -> writers -> disk
 
-void recvChunks()
+void recvChunks(std::unordered_map<unsigned, ScopedFd> fileMap)
 {
     using namespace draft::util;
     namespace fs = std::filesystem;
@@ -407,6 +408,19 @@ int recvCmd(int, char **)
     createTargetFiles(".", info.config.fileInfo);
 
     auto fileMap = std::unordered_map<unsigned, ScopedFd>{ };
+    for (const auto &item : info.config.fileInfo)
+    {
+        auto path = rootedPath(
+            ".",
+            item.path,
+            item.targetSuffix);
+
+        auto fd = ScopedFd{::open(path.c_str(), O_WRONLY | O_DIRECT)};
+
+        fileMap.insert({item.id, std::move(fd)});
+    }
+
+    recvChunks(fileMap);
 
     return 0;
 }
