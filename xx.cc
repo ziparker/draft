@@ -374,7 +374,12 @@ void handleSig(int)
 
 // readers -> queue -> Senders -> net -> receivers -> queue -> writers -> disk
 
-void recvChunks(draft::util::FdMap fileMap)
+// take temporary receivers list so receivers ports can be opened prior to this
+// call, at the same time as the session fd, so receivers are ready immediately
+// after session setup.
+//
+// this should be removed when rx is encapsulated in an rx handler.
+void recvChunks(draft::util::FdMap fileMap, std::vector<draft::util::ScopedFd> receiverFds)
 {
     using namespace draft::util;
     namespace fs = std::filesystem;
@@ -383,12 +388,9 @@ void recvChunks(draft::util::FdMap fileMap)
     auto pool = BufferPool::make(1u << 21, 35);
     auto queue = WaitQueue<BDesc>{ };
 
-    auto netFd = net::connectTcp("localhost", 5000);
-    auto receiver = Receiver(netFd.get(), queue);
-
-    auto netReceivers = Executor{
-        std::move(receiver)
-    };
+    auto netReceivers = Executor{ };
+    for (const auto &fd : receiverFds)
+        netReceivers.add(Receiver(fd.get(), queue));
 
     auto diskWriter = Writer(std::move(fileMap), queue);
 
@@ -412,6 +414,9 @@ int recvCmd(int, char **)
 
     spdlog::info("recv");
 
+    auto rxFds = std::vector<ScopedFd>{ };
+    rxFds.push_back(net::bindTcp("localhost", 5000));
+
     auto info = awaitTransferRequest(
         net::bindTcp("localhost", 4000));
 
@@ -433,7 +438,7 @@ int recvCmd(int, char **)
         fileMap.insert({item.id, rawFd});
     }
 
-    recvChunks(std::move(fileMap));
+    recvChunks(std::move(fileMap), std::move(rxFds));
 
     return 0;
 }
