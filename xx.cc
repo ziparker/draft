@@ -27,6 +27,7 @@ struct TransferInfo
 
 using BufQueue = WaitQueue<BDesc>;
 using BufferPtr = std::shared_ptr<BufferPool::Buffer>;
+using FdMap = std::unordered_map<unsigned, int>;
 
 class Reader
 {
@@ -209,9 +210,9 @@ public:
     using Buffer = BufferPool::Buffer;
 
     // TODO: use fd map instead of fd
-    Writer(int fd, BufQueue &queue):
+    Writer(FdMap fdMap, BufQueue &queue):
         queue_(&queue),
-        fd_(fd)
+        fdMap_(std::move(fdMap))
     {
     }
         
@@ -224,18 +225,29 @@ public:
     }
 
 private:
+    int getFd(unsigned id)
+    {
+        auto iter = fdMap_.find(id);
+        if (iter == end(fdMap_))
+            return -1;
+
+        return iter->second;
+    }
+
     size_t write(BDesc desc)
     {
+        const auto fd = getFd(desc.fileId);
+
         iovec iov{
             desc.buf->data(),
             desc.len
         };
 
-        return writeChunk(fd_, &iov, 1, desc.offset);
+        return writeChunk(fd, &iov, 1, desc.offset);
     }
 
     BufQueue *queue_{ };
-    int fd_{-1};
+    FdMap fdMap_{ };
 };
 
 class Executor
@@ -362,7 +374,7 @@ void handleSig(int)
 
 // readers -> queue -> Senders -> net -> receivers -> queue -> writers -> disk
 
-void recvChunks(std::unordered_map<unsigned, ScopedFd> fileMap)
+void recvChunks(draft::util::FdMap fileMap)
 {
     using namespace draft::util;
     namespace fs = std::filesystem;
@@ -378,8 +390,7 @@ void recvChunks(std::unordered_map<unsigned, ScopedFd> fileMap)
         std::move(receiver)
     };
 
-    #if 0
-    auto diskWriter = Writer(fd.get(), queue);
+    auto diskWriter = Writer(std::move(fileMap), queue);
 
     auto diskWriters = Executor{
         std::move(diskWriter)
@@ -393,7 +404,6 @@ void recvChunks(std::unordered_map<unsigned, ScopedFd> fileMap)
     }
 
     diskWriters.runOnce();
-    #endif
 }
 
 int recvCmd(int, char **)
@@ -407,7 +417,8 @@ int recvCmd(int, char **)
 
     createTargetFiles(".", info.config.fileInfo);
 
-    auto fileMap = std::unordered_map<unsigned, ScopedFd>{ };
+    auto fds = std::vector<ScopedFd>{ };
+    auto fileMap = FdMap{ };
     for (const auto &item : info.config.fileInfo)
     {
         auto path = rootedPath(
@@ -416,11 +427,13 @@ int recvCmd(int, char **)
             item.targetSuffix);
 
         auto fd = ScopedFd{::open(path.c_str(), O_WRONLY | O_DIRECT)};
+        auto rawFd = fd.get();
 
-        fileMap.insert({item.id, std::move(fd)});
+        fds.push_back(std::move(fd));
+        fileMap.insert({item.id, rawFd});
     }
 
-    recvChunks(fileMap);
+    recvChunks(std::move(fileMap));
 
     return 0;
 }
