@@ -371,7 +371,9 @@ public:
     {
         std::erase_if(runq_,
             [](const auto &r) {
-                return !r->runOnce();
+                auto rm = !r->runOnce();
+                if (rm) spdlog::info("removing thd exec entry.");
+                return rm;
             });
     }
 
@@ -477,17 +479,15 @@ public:
         readExec_.runOnce();
         sendExec_.runOnce();
 
-        if (readExec_.empty())
-        {
-            // disk read complete.
-            return false;
-        }
+        // return now if we're still reading from the current file.
+        if (!readExec_.empty())
+            return true;
 
-        // skip directories.
+        // finished readh current file - select next file, skip directories.
         while (++fileIter_ != end(info_) && S_ISDIR(fileIter_->status.mode))
             ;
 
-        if (++fileIter_ == end(info_))
+        if (fileIter_ == end(info_))
         {
             // path xfer completed.
             return false;
