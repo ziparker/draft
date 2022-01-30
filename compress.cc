@@ -33,7 +33,10 @@
 #include <sys/sysinfo.h>
 #include <unistd.h>
 
+extern "C" {
 #include <blosc2.h>
+}
+
 #include <spdlog/spdlog.h>
 #include <spdlog/cfg/env.h>
 

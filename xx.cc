@@ -288,6 +288,11 @@ public:
             r->runOnce();
     }
 
+    bool empty() const noexcept
+    {
+        runq_.empty();
+    }
+
 private:
     class Runnable
     {
@@ -331,11 +336,14 @@ struct SessionConfig
 
 std::vector<ScopedFd> connectTargets(const std::vector<Target> &targets)
 {
-    return std::views::transform(
-        begin(targets), end(targets),
+    #if 0
+    const auto view = std::views::transform(
+        targets,
         [](const Target &t) {
             return net::connectTcp(t.addr, t.port);
         });
+    #endif
+    return { };
 }
 
 class TxSession
@@ -350,8 +358,9 @@ public:
 
     void start(const std::string &path)
     {
+        #if 0
         const auto view = std::views::transform(
-            targetFds_, [](const auto &fd){ return fd.get(); });
+            targetFds_, [this](const auto &fd){ return {fd.get(), queue_}; });
 
         auto senders = std::vector<Sender>{begin(view), end(view)};
         sendExec_.add(std::move(senders));
@@ -361,6 +370,7 @@ public:
 
         if (fileIter_ != end(info_))
             startFile(*fileIter_);
+        #endif
     }
 
     void runOnce()
@@ -388,7 +398,7 @@ private:
     {
         const auto &filename = info.path;
         auto fd = ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)};
-        auto fileSz = fs::file_size(filename);
+        auto fileSz = std::filesystem::file_size(filename);
 
         auto diskRead = Reader(fd.get(), 1, {0, fileSz}, pool_, queue_);
 
