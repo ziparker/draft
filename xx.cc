@@ -513,20 +513,22 @@ public:
         auto readFinished = !readExec_.runOnce();
         sendExec_.runOnce();
 
-        spdlog::trace("read runonce empty? {} | {}]", readExec_.empty(), readFinished);
-
         // return now if we're still reading from the current file.
-        if (!readExec_.empty())
+        if (!readFinished)
             return true;
 
-        // finished readh current file - select next file, skip directories.
+        // finished reading the current file - select next file, skip directories.
         while (++fileIter_ != end(info_) && S_ISDIR(fileIter_->status.mode))
             ;
 
         if (fileIter_ == end(info_))
         {
             // path xfer completed.
-            spdlog::info("tx path transfer completed.");
+            // run senders again to flush queued data.
+            spdlog::info("tx path transfer completed - flushing sender data.");
+
+            sendExec_.runOnce();
+
             return false;
         }
 
