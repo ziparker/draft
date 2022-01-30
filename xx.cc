@@ -1,3 +1,4 @@
+#include <chrono>
 #include <filesystem>
 #include <iterator>
 #include <ranges>
@@ -365,6 +366,9 @@ public:
 
     void start(const std::string &path)
     {
+        // TODO: should we also own the rx service connection, and send xfer
+        // request here?
+
         const auto view = std::views::transform(
             targetFds_, [this](const auto &fd){ return Sender{fd.get(), queue_}; });
 
@@ -381,7 +385,7 @@ public:
             startFile(*fileIter_);
     }
 
-    void runOnce()
+    bool runOnce()
     {
         readExec_.runOnce();
         sendExec_.runOnce();
@@ -389,16 +393,18 @@ public:
         if (readExec_.empty())
         {
             // disk read complete.
-            return;
+            return false;
         }
 
         if (++fileIter_ == end(info_))
         {
             // path xfer completed.
-            return;
+            return false;
         }
 
         startFile(*fileIter_);
+
+        return true;
     }
 
 private:
@@ -601,23 +607,40 @@ void sendFile(const std::string &filename, unsigned)
 
 int sendCmd(int, char **argv)
 {
+    using namespace std::chrono_literals;
     using namespace draft::util;
 
     const auto path = std::string{argv[1]};
     spdlog::info("send path {}", path);
 
+    // TODO: figure out if fileinfo / xfer req should be part of session start
+    // this is redundant atm.
     auto fileInfo = getFileInfo(path);
+    auto conf = SessionConfig{
+        {
+            {"localhost", 5001},
+            {"localhost", 5002},
+            {"localhost", 5003},
+        },
+        {"localhost", 5000}
+    };
+    auto sess = TxSession(std::move(conf));
 
     auto fd = net::connectTcp("localhost", 4000);
     sendTransferRequest(fd.get(), fileInfo);
 
-    for (const auto &info : fileInfo)
-    {
-        if (S_ISDIR(info.status.mode))
-            continue;
+    sess.start(path);
 
-        sendFile(info.path, info.id);
-    }
+    while (sess.runOnce())
+        std::this_thread::sleep_for(200ms);
+
+    //for (const auto &info : fileInfo)
+    //{
+    //    if (S_ISDIR(info.status.mode))
+    //        continue;
+
+    //    sendFile(info.path, info.id);
+    //}
 
     return 0;
 }
