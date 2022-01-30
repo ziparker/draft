@@ -7,6 +7,9 @@
 #include <signal.h>
 #include <sys/socket.h>
 
+#include <spdlog/spdlog.h>
+#include <spdlog/cfg/env.h>
+
 #include "Util.hh"
 #include "UtilJson.hh"
 
@@ -40,8 +43,8 @@ class Reader
 public:
     using Buffer = BufferPool::Buffer;
 
-    Reader(int fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue &queue):
-        fd_{fd},
+    Reader(ScopedFd fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue &queue):
+        fd_{std::move(fd)},
         segment_{segment},
         pool_{pool},
         queue_{&queue},
@@ -77,10 +80,10 @@ private:
         auto len = roundBlockSize(segment_.len - segment_.offset);
         len = std::min(len, buf.size());
 
-        return readChunk(fd_, buf.data(), len, segment_.offset);
+        return readChunk(fd_.get(), buf.data(), len, segment_.offset);
     }
 
-    int fd_{-1};
+    ScopedFd fd_{ };
     Segment segment_{ };
     BufferPoolPtr pool_{ };
     BufQueue *queue_{ };
@@ -367,14 +370,18 @@ public:
         return *this;
     }
 
-    void runOnce()
+    bool runOnce()
     {
-        std::erase_if(runq_,
+        const auto count = std::erase_if(runq_,
             [](const auto &r) {
                 auto rm = !r->runOnce();
                 if (rm) spdlog::info("removing thd exec entry.");
                 return rm;
             });
+
+        spdlog::trace("thd exec runonce {} count {}", (void *)this, count);
+
+        return !empty();
     }
 
     bool empty() const noexcept
@@ -396,11 +403,20 @@ private:
     public:
         Runnable_(T t)
         {
+            auto promise = std::promise<void>{ };
+            auto future = promise.get_future();
+
             thd_ = std::jthread(
-                [t_ = std::move(t)]() mutable {
-                    while (true)
-                        t_.runOnce();
-                });
+                [](std::stop_token token, T t_, auto &&promise_) mutable {
+                    promise_.set_value_at_thread_exit();
+
+                    while (!token.stop_requested() && t_.runOnce())
+                        ;
+
+                    spdlog::debug("thd runnable exiting.");
+                }, std::move(t), std::move(promise));
+
+            future_ = std::move(future);
         }
 
         ~Runnable_() noexcept
@@ -411,9 +427,10 @@ private:
     private:
         bool runOnce() const override
         {
-            return thd_.get_id() != std::jthread::id{ };
+            return future_.valid();
         }
 
+        std::future<void> future_{ };
         std::jthread thd_{ };
     };
 
@@ -476,8 +493,10 @@ public:
 
     bool runOnce()
     {
-        readExec_.runOnce();
+        auto readFinished = !readExec_.runOnce();
         sendExec_.runOnce();
+
+        spdlog::trace("read runonce empty? {} | {}]", readExec_.empty(), readFinished);
 
         // return now if we're still reading from the current file.
         if (!readExec_.empty())
@@ -490,6 +509,7 @@ public:
         if (fileIter_ == end(info_))
         {
             // path xfer completed.
+            spdlog::info("tx path transfer completed.");
             return false;
         }
 
@@ -503,12 +523,12 @@ private:
     {
         const auto &filename = info.path;
 
-        spdlog::debug("starting tx for file {}", filename);
-
         auto fd = ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)};
+        spdlog::debug("tx opened file {} @ fd {}", filename, fd.get());
+
         auto fileSz = std::filesystem::file_size(filename);
 
-        auto diskRead = Reader(fd.get(), 1, {0, fileSz}, pool_, queue_);
+        auto diskRead = Reader(std::move(fd), 1, {0, fileSz}, pool_, queue_);
 
         readExec_.add(std::move(diskRead));
     }
@@ -684,7 +704,7 @@ void sendFile(const std::string &filename, unsigned)
     auto fd = ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)};
     auto fileSz = fs::file_size(filename);
 
-    auto diskRead = Reader(fd.get(), 1, {0, fileSz}, pool, queue);
+    auto diskRead = Reader(std::move(fd), 1, {0, fileSz}, pool, queue);
 
     auto diskReaders = Executor{
         std::move(diskRead)
@@ -742,6 +762,8 @@ int sendCmd(int, char **argv)
 int main(int argc, char **argv)
 {
     using namespace draft::util;
+
+    spdlog::cfg::load_env_levels();
 
     struct sigaction action{ };
     action.sa_handler = handleSig;
