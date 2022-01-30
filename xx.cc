@@ -1,3 +1,4 @@
+#include <atomic>
 #include <chrono>
 #include <filesystem>
 #include <iterator>
@@ -389,12 +390,19 @@ public:
         return runq_.empty();
     }
 
+    void cancel()
+    {
+        for (auto &r : runq_)
+            r->cancel();
+    }
+
 private:
     class Runnable
     {
     public:
         virtual ~Runnable() = default;
         virtual bool runOnce() const = 0;
+        virtual void cancel() = 0;
     };
 
     template <typename T>
@@ -403,20 +411,14 @@ private:
     public:
         Runnable_(T t)
         {
-            auto promise = std::promise<void>{ };
-            auto future = promise.get_future();
-
             thd_ = std::jthread(
-                [](std::stop_token token, T t_, auto &&promise_) mutable {
-                    promise_.set_value_at_thread_exit();
-
+                [this](std::stop_token token, T t_) mutable {
                     while (!token.stop_requested() && t_.runOnce())
                         ;
 
+                    finished_ = true;
                     spdlog::debug("thd runnable exiting.");
-                }, std::move(t), std::move(promise));
-
-            future_ = std::move(future);
+                }, std::move(t));
         }
 
         ~Runnable_() noexcept
@@ -424,13 +426,18 @@ private:
             thd_.request_stop();
         }
 
+        void cancel()
+        {
+            thd_.request_stop();
+        }
+
     private:
         bool runOnce() const override
         {
-            return future_.valid();
+            return !finished_;
         }
 
-        std::future<void> future_{ };
+        std::atomic_bool finished_{ };
         std::jthread thd_{ };
     };
 
@@ -489,6 +496,12 @@ public:
 
         if (fileIter_ != end(info_))
             startFile(*fileIter_);
+    }
+
+    void finish()
+    {
+        readExec_.cancel();
+        sendExec_.cancel();
     }
 
     bool runOnce()
@@ -747,6 +760,8 @@ int sendCmd(int, char **argv)
 
     while (sess.runOnce())
         std::this_thread::sleep_for(200ms);
+
+    sess.finish();
 
     //for (const auto &info : fileInfo)
     //{
