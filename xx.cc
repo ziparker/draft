@@ -1,3 +1,7 @@
+#include <filesystem>
+#include <iterator>
+#include <ranges>
+
 #include <signal.h>
 #include <sys/socket.h>
 
@@ -250,6 +254,7 @@ private:
     FdMap fdMap_{ };
 };
 
+// TODO: runnable concept
 class Executor
 {
 public:
@@ -266,6 +271,15 @@ public:
             std::make_unique<Runnable_<T>>(std::forward<T>(runnable)));
 
         return *this;
+    }
+
+    template <typename T>
+    Executor &add(std::vector<T> runnables)
+    {
+        runq_.insert(
+            end(runq_),
+            std::make_move_iterator(begin(runnables)),
+            std::make_move_iterator(end(runnables)));
     }
 
     void runOnce()
@@ -301,6 +315,94 @@ private:
     };
 
     std::vector<std::unique_ptr<Runnable>> runq_;
+};
+
+struct Target
+{
+    std::string addr;
+    unsigned port{ };
+};
+
+struct SessionConfig
+{
+    std::vector<Target> targets;
+    Target service;
+};
+
+std::vector<ScopedFd> connectTargets(const std::vector<Target> &targets)
+{
+    return std::views::transform(
+        begin(targets), end(targets),
+        [](const Target &t) {
+            return net::connectTcp(t.addr, t.port);
+        });
+}
+
+class TxSession
+{
+public:
+    TxSession(SessionConfig conf):
+        conf_(std::move(conf))
+    {
+        pool_ = BufferPool::make(1u << 21, 35);
+        targetFds_ = connectTargets(conf_.targets);
+    }
+
+    void start(const std::string &path)
+    {
+        const auto view = std::views::transform(
+            targetFds_, [](const auto &fd){ return fd.get(); });
+
+        auto senders = std::vector<Sender>{begin(view), end(view)};
+        sendExec_.add(std::move(senders));
+
+        info_ = getFileInfo(path);
+        fileIter_ = begin(info_);
+
+        if (fileIter_ != end(info_))
+            startFile(*fileIter_);
+    }
+
+    void runOnce()
+    {
+        readExec_.runOnce();
+        sendExec_.runOnce();
+
+        if (readExec_.empty())
+        {
+            // disk read complete.
+            return;
+        }
+
+        if (++fileIter_ == end(info_))
+        {
+            // path xfer completed.
+            return;
+        }
+
+        startFile(*fileIter_);
+    }
+
+private:
+    void startFile(const FileInfo &info)
+    {
+        const auto &filename = info.path;
+        auto fd = ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)};
+        auto fileSz = fs::file_size(filename);
+
+        auto diskRead = Reader(fd.get(), 1, {0, fileSz}, pool_, queue_);
+
+        readExec_.add(std::move(diskRead));
+    }
+
+    WaitQueue<BDesc> queue_;
+    std::shared_ptr<BufferPool> pool_;
+    Executor readExec_;
+    Executor sendExec_;
+    std::vector<FileInfo> info_;
+    decltype(info_)::const_iterator fileIter_;
+    SessionConfig conf_;
+    std::vector<ScopedFd> targetFds_;
 };
 
 class InfoReceiver
