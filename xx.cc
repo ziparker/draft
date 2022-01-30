@@ -308,7 +308,7 @@ private:
     {
     public:
         virtual ~Runnable() = default;
-        virtual void runOnce() = 0;
+        virtual bool runOnce() = 0;
     };
 
     template <typename T>
@@ -321,9 +321,9 @@ private:
         }
 
     private:
-        void runOnce() override
+        bool runOnce() override
         {
-            t_.runOnce();
+            return t_.runOnce();
         }
 
         T t_;
@@ -369,8 +369,10 @@ public:
 
     void runOnce()
     {
-        for (auto &r : runq_)
-            r->runOnce();
+        std::erase_if(runq_,
+            [](const auto &r) {
+                return !r->runOnce();
+            });
     }
 
     bool empty() const noexcept
@@ -383,7 +385,7 @@ private:
     {
     public:
         virtual ~Runnable() = default;
-        virtual void runOnce() = 0;
+        virtual bool runOnce() const = 0;
     };
 
     template <typename T>
@@ -405,8 +407,9 @@ private:
         }
 
     private:
-        void runOnce() override
+        bool runOnce() const override
         {
+            return thd_.get_id() != std::jthread::id{ };
         }
 
         std::jthread thd_{ };
@@ -480,6 +483,10 @@ public:
             return false;
         }
 
+        // skip directories.
+        while (++fileIter_ != end(info_) && S_ISDIR(fileIter_->status.mode))
+            ;
+
         if (++fileIter_ == end(info_))
         {
             // path xfer completed.
@@ -495,6 +502,9 @@ private:
     void startFile(const FileInfo &info)
     {
         const auto &filename = info.path;
+
+        spdlog::debug("starting tx for file {}", filename);
+
         auto fd = ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)};
         auto fileSz = std::filesystem::file_size(filename);
 
@@ -530,6 +540,7 @@ public:
         auto sz = buf_.size() - offset_;
 
         auto len = ::recv(fd_, data, sz, 0);
+
         if (len < 0)
             throw std::system_error(errno, std::system_category(), "recv");
 
@@ -695,7 +706,6 @@ int sendCmd(int, char **argv)
     using namespace draft::util;
 
     const auto path = std::string{argv[1]};
-    spdlog::info("send path {}", path);
 
     // TODO: figure out if fileinfo / xfer req should be part of session start
     // this is redundant atm.
