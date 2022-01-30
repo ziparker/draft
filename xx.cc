@@ -16,6 +16,8 @@
 
 namespace draft::util {
 
+using namespace std::chrono_literals;
+
 struct BDesc
 {
     std::shared_ptr<BufferPool::Buffer> buf{ };
@@ -104,7 +106,9 @@ public:
         
     bool runOnce()
     {
-        while (auto desc = queue_->get())
+        using Clock = std::chrono::steady_clock;
+
+        while (auto desc = queue_->get(Clock::now() + 200ms))
             write(std::move(*desc));
 
         return true;
@@ -735,7 +739,6 @@ void sendFile(const std::string &filename, unsigned)
 
 int sendCmd(int, char **argv)
 {
-    using namespace std::chrono_literals;
     using namespace draft::util;
 
     const auto path = std::string{argv[1]};
