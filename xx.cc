@@ -344,14 +344,13 @@ struct SessionConfig
 
 std::vector<ScopedFd> connectTargets(const std::vector<Target> &targets)
 {
-    #if 0
     const auto view = std::views::transform(
         targets,
         [](const Target &t) {
             return net::connectTcp(t.addr, t.port);
         });
-    #endif
-    return { };
+
+    return {begin(view), end(view)};
 }
 
 class TxSession
