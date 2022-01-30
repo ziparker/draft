@@ -39,6 +39,8 @@
 
 #include <linux/if_tun.h>
 
+#include <spdlog/spdlog.h>
+
 #include "Util.hh"
 
 namespace draft::util {
@@ -550,7 +552,8 @@ ScopedFd connectTcp(const std::string &host, uint16_t port, int tmoMs)
     if (::connect(fd.get(), reinterpret_cast<const struct sockaddr *>(&addr), sizeof(addr)) < 0)
     {
         if (errno != EINPROGRESS)
-            throw std::system_error(errno, std::system_category(), "connectTcp: connect");
+            throw std::system_error(errno, std::system_category(),
+                fmt::format("connectTcp: connect {}:{}", host, port));
 
         // wait for connection or timeout.
         auto pfd = pollfd{fd.get(), POLLOUT, 0};

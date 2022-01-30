@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <iterator>
 #include <ranges>
+#include <thread>
 
 #include <signal.h>
 #include <sys/socket.h>
@@ -99,7 +100,7 @@ public:
         
     bool runOnce()
     {
-        while (auto desc = queue_->tryGet())
+        while (auto desc = queue_->get())
             write(std::move(*desc));
 
         return true;
@@ -331,6 +332,89 @@ private:
     std::vector<std::unique_ptr<Runnable>> runq_;
 };
 
+class ThreadExecutor
+{
+public:
+    template <typename ...Args>
+    ThreadExecutor(Args &&...args)
+    {
+        (add(std::forward<Args>(args)), ...);
+    }
+
+    template <typename T>
+    ThreadExecutor &add(T &&runnable)
+    {
+        runq_.push_back(
+            std::make_unique<Runnable_<T>>(std::forward<T>(runnable)));
+
+        return *this;
+    }
+
+    template <typename T>
+    ThreadExecutor &add(std::vector<T> runnables)
+    {
+        auto runnablesView = std::views::transform(
+            runnables, [](auto &&r) {
+                return std::make_unique<Runnable_<T>>(
+                    std::forward<T>(r));
+            });
+
+        runq_.insert(
+            end(runq_),
+            std::make_move_iterator(begin(runnablesView)),
+            std::make_move_iterator(end(runnablesView)));
+
+        return *this;
+    }
+
+    void runOnce()
+    {
+        for (auto &r : runq_)
+            r->runOnce();
+    }
+
+    bool empty() const noexcept
+    {
+        return runq_.empty();
+    }
+
+private:
+    class Runnable
+    {
+    public:
+        virtual ~Runnable() = default;
+        virtual void runOnce() = 0;
+    };
+
+    template <typename T>
+    class Runnable_: public Runnable
+    {
+    public:
+        Runnable_(T t)
+        {
+            thd_ = std::jthread(
+                [t_ = std::move(t)]() mutable {
+                    while (true)
+                        t_.runOnce();
+                });
+        }
+
+        ~Runnable_() noexcept
+        {
+            thd_.request_stop();
+        }
+
+    private:
+        void runOnce() override
+        {
+        }
+
+        std::jthread thd_{ };
+    };
+
+    std::vector<std::unique_ptr<Runnable>> runq_;
+};
+
 struct Target
 {
     std::string addr;
@@ -421,8 +505,8 @@ private:
 
     WaitQueue<BDesc> queue_;
     std::shared_ptr<BufferPool> pool_;
-    Executor readExec_;
-    Executor sendExec_;
+    ThreadExecutor readExec_;
+    ThreadExecutor sendExec_;
     std::vector<FileInfo> info_;
     decltype(info_)::const_iterator fileIter_;
     SessionConfig conf_;
@@ -626,7 +710,7 @@ int sendCmd(int, char **argv)
     };
     auto sess = TxSession(std::move(conf));
 
-    auto fd = net::connectTcp("localhost", 4000);
+    auto fd = net::connectTcp("localhost", 5000);
     sendTransferRequest(fd.get(), fileInfo);
 
     sess.start(path);
