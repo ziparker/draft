@@ -276,10 +276,18 @@ public:
     template <typename T>
     Executor &add(std::vector<T> runnables)
     {
+        auto runnablesView = std::views::transform(
+            runnables, [](auto &&r) {
+                return std::make_unique<Runnable_<T>>(
+                    std::forward<T>(r));
+            });
+
         runq_.insert(
             end(runq_),
-            std::make_move_iterator(begin(runnables)),
-            std::make_move_iterator(end(runnables)));
+            std::make_move_iterator(begin(runnablesView)),
+            std::make_move_iterator(end(runnablesView)));
+
+        return *this;
     }
 
     void runOnce()
@@ -290,7 +298,7 @@ public:
 
     bool empty() const noexcept
     {
-        runq_.empty();
+        return runq_.empty();
     }
 
 private:
@@ -358,11 +366,13 @@ public:
 
     void start(const std::string &path)
     {
-        #if 0
         const auto view = std::views::transform(
-            targetFds_, [this](const auto &fd){ return {fd.get(), queue_}; });
+            targetFds_, [this](const auto &fd){ return Sender{fd.get(), queue_}; });
 
-        auto senders = std::vector<Sender>{begin(view), end(view)};
+        auto senders = std::vector<Sender>{
+            std::make_move_iterator(begin(view)),
+            std::make_move_iterator(end(view))};
+
         sendExec_.add(std::move(senders));
 
         info_ = getFileInfo(path);
@@ -370,7 +380,6 @@ public:
 
         if (fileIter_ != end(info_))
             startFile(*fileIter_);
-        #endif
     }
 
     void runOnce()
