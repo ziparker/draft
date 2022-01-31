@@ -394,7 +394,7 @@ public:
         return runq_.empty();
     }
 
-    void cancel()
+    void cancel() noexcept
     {
         for (auto &r : runq_)
             r->cancel();
@@ -406,7 +406,7 @@ private:
     public:
         virtual ~Runnable() = default;
         virtual bool runOnce() const = 0;
-        virtual void cancel() = 0;
+        virtual void cancel() noexcept = 0;
     };
 
     template <typename T>
@@ -430,7 +430,7 @@ private:
             thd_.request_stop();
         }
 
-        void cancel()
+        void cancel() noexcept
         {
             thd_.request_stop();
         }
@@ -471,6 +471,17 @@ std::vector<ScopedFd> connectTargets(const std::vector<Target> &targets)
     return {begin(view), end(view)};
 }
 
+std::vector<ScopedFd> bindTargets(const std::vector<Target> &targets)
+{
+    const auto view = std::views::transform(
+        targets,
+        [](const Target &t) {
+            return net::bindTcp(t.addr, t.port);
+        });
+
+    return {begin(view), end(view)};
+}
+
 class TxSession
 {
 public:
@@ -479,6 +490,11 @@ public:
     {
         pool_ = BufferPool::make(1u << 21, 35);
         targetFds_ = connectTargets(conf_.targets);
+    }
+
+    ~TxSession() noexcept
+    {
+        finish();
     }
 
     void start(const std::string &path)
@@ -502,7 +518,7 @@ public:
             startFile(*fileIter_);
     }
 
-    void finish()
+    void finish() noexcept
     {
         readExec_.cancel();
         sendExec_.cancel();
@@ -559,6 +575,80 @@ private:
     std::vector<FileInfo> info_;
     decltype(info_)::const_iterator fileIter_;
     SessionConfig conf_;
+    std::vector<ScopedFd> targetFds_;
+};
+
+class RxSession
+{
+public:
+    RxSession(SessionConfig conf)
+    {
+        pool_ = BufferPool::make(1u << 21, 35);
+        targetFds_ = bindTargets(conf.targets);
+    }
+
+    ~RxSession() noexcept
+    {
+        finish();
+    }
+
+    void start(util::TransferRequest req)
+    {
+        createTargetFiles(".", req.config.fileInfo);
+
+        auto fds = std::vector<ScopedFd>{ };
+        auto fileMap = FdMap{ };
+        for (const auto &item : info.config.fileInfo)
+        {
+            auto path = rootedPath(
+                ".",
+                item.path,
+                item.targetSuffix);
+
+            auto fd = ScopedFd{::open(path.c_str(), O_WRONLY | O_DIRECT)};
+            auto rawFd = fd.get();
+
+            fds.push_back(std::move(fd));
+            fileMap.insert({item.id, rawFd});
+        }
+
+        const auto view = std::views::transform(
+            fds, [this](const auto &fd){ return Receiver{fd.get(), queue_}; });
+
+        auto receivers = std::vector<Receiver>{
+            std::make_move_iterator(begin(view)),
+            std::make_move_iterator(end(view))};
+
+        recvExec_.add(std::move(receivers));
+
+        writeExec_.add(Writer(std::move(fileMap), queue_));
+    }
+
+    void finish() noexcept
+    {
+        recvExec_.cancel();
+        writeExec_.cancel();
+    }
+
+    bool runOnce()
+    {
+        auto recvFinished = !recvExec_.runOnce();
+        writeExec_.runOnce();
+
+        // return now if we're still receiving data.
+        if (!recvFinished)
+            return true;
+
+        writeExec_.runOnce();
+
+        return false;
+    }
+
+private:
+    WaitQueue<BDesc> queue_;
+    std::shared_ptr<BufferPool> pool_;
+    ThreadExecutor recvExec_;
+    ThreadExecutor writeExec_;
     std::vector<ScopedFd> targetFds_;
 };
 
@@ -674,69 +764,18 @@ int recvCmd(int, char **)
 
     spdlog::info("recv");
 
-    auto rxFds = std::vector<ScopedFd>{ };
-    rxFds.push_back(net::bindTcp("localhost", 5000));
+    auto sess = RxSession(std::move(config));
+    sess.start();
 
     auto info = awaitTransferRequest(
         net::bindTcp("localhost", 4000));
 
-    createTargetFiles(".", info.config.fileInfo);
+    sess.start(std::move(info));
 
-    auto fds = std::vector<ScopedFd>{ };
-    auto fileMap = FdMap{ };
-    for (const auto &item : info.config.fileInfo)
-    {
-        auto path = rootedPath(
-            ".",
-            item.path,
-            item.targetSuffix);
-
-        auto fd = ScopedFd{::open(path.c_str(), O_WRONLY | O_DIRECT)};
-        auto rawFd = fd.get();
-
-        fds.push_back(std::move(fd));
-        fileMap.insert({item.id, rawFd});
-    }
-
-    recvChunks(std::move(fileMap), std::move(rxFds));
+    while (sess.runOnce())
+        std::this_thread::sleep_for(200ms);
 
     return 0;
-}
-
-void sendFile(const std::string &filename, unsigned)
-{
-    using namespace draft::util;
-    namespace fs = std::filesystem;
-
-    // per-session:
-    auto pool = BufferPool::make(1u << 21, 35);
-    auto queue = WaitQueue<BDesc>{ };
-
-    auto netFd = net::connectTcp("localhost", 5000);
-    auto sender = Sender(netFd.get(), queue);
-
-    auto netSenders = Executor{
-        std::move(sender)
-    };
-
-    // per-file:
-    auto fd = ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)};
-    auto fileSz = fs::file_size(filename);
-
-    auto diskRead = Reader(std::move(fd), 1, {0, fileSz}, pool, queue);
-
-    auto diskReaders = Executor{
-        std::move(diskRead)
-    };
-
-    // send file:
-    while (!done_)
-    {
-        diskReaders.runOnce();
-        netSenders.runOnce();
-    }
-
-    netSenders.runOnce();
 }
 
 int sendCmd(int, char **argv)
@@ -765,16 +804,6 @@ int sendCmd(int, char **argv)
 
     while (sess.runOnce())
         std::this_thread::sleep_for(200ms);
-
-    sess.finish();
-
-    //for (const auto &info : fileInfo)
-    //{
-    //    if (S_ISDIR(info.status.mode))
-    //        continue;
-
-    //    sendFile(info.path, info.id);
-    //}
 
     return 0;
 }
