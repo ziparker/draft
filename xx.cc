@@ -686,20 +686,28 @@ private:
 class InfoReceiver
 {
 public:
-    explicit InfoReceiver(int fd):
-        fd_(fd)
+    explicit InfoReceiver(ScopedFd fd):
+        srvFd_(std::move(fd))
     {
     }
 
     bool runOnce()
     {
+        if (fd_.get() < 0)
+        {
+            fd_ = util::net::accept(srvFd_.get());
+
+            if (fd_.get() < 0)
+                return true;
+        }
+
         if (buf_.size() - offset_ >= 4096)
             buf_.resize(buf_.size() + 4096);
 
         auto data = buf_.data() + offset_;
         auto sz = buf_.size() - offset_;
 
-        auto len = ::recv(fd_, data, sz, 0);
+        auto len = ::recv(fd_.get(), data, sz, 0);
 
         if (len < 0)
             throw std::system_error(errno, std::system_category(), "recv");
@@ -724,16 +732,22 @@ public:
 private:
     std::vector<uint8_t> buf_{ };
     size_t offset_{ };
-    int fd_{-1};
+    ScopedFd fd_{ };
+    ScopedFd srvFd_{ };
     bool haveInfo_{ };
 };
 
-TransferRequest awaitTransferRequest(ScopedFd fd)
-{
-    auto rx = InfoReceiver{fd.get()};
+sig_atomic_t done_;
 
-    while (!rx.runOnce())
+std::optional<TransferRequest> awaitTransferRequest(ScopedFd fd)
+{
+    auto rx = InfoReceiver{std::move(fd)};
+
+    while (!done_ && !rx.runOnce())
         ;
+
+    if (done_)
+        return { };
 
     return rx.info();
 }
@@ -743,8 +757,6 @@ void sendTransferRequest(int fd, const std::vector<FileInfo> &info)
     auto request = util::generateTransferRequestMsg(info);
     util::net::writeAll(fd, request.data(), request.size());
 }
-
-sig_atomic_t done_;
 
 void handleSig(int)
 {
@@ -781,7 +793,10 @@ int recvCmd(int, char **)
     auto req = awaitTransferRequest(
         net::bindTcp("localhost", 5000));
 
-    sess.start(std::move(req));
+    if (!req)
+        return 1;
+
+    sess.start(std::move(*req));
 
     while (sess.runOnce())
         std::this_thread::sleep_for(200ms);
