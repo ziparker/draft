@@ -1415,6 +1415,8 @@ void readAll(int fd, const void *data, size_t len);
 
 void readAll(int fd, const struct iovec *iovs, size_t iovlen);
 
+std::string peerName(int fd);
+
 }
 
 }

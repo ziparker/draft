@@ -702,6 +702,35 @@ void readAll(int fd, const struct iovec *iovs, size_t iovlen)
     iovOp(fd, iovs, iovlen, ::readv);
 }
 
+std::string peerName(int fd)
+{
+    auto addr = sockaddr_storage{ };
+    auto addrlen = static_cast<socklen_t>(sizeof(addr));
+
+    if (getpeername(fd, reinterpret_cast<struct sockaddr *>(&addr), &addrlen))
+        throw std::system_error(errno, std::system_category(), "getpeername");
+
+    auto host = std::string{ };
+    host.resize(256);
+
+    auto port = std::string{ };
+    port.resize(6);
+
+    if (auto err = getnameinfo(reinterpret_cast<const struct sockaddr *>(&addr), addrlen,
+        host.data(), host.size(),
+        port.data(), port.size(),
+        NI_NAMEREQD))
+    {
+        throw std::runtime_error("getnameinfo: " + std::string(gai_strerror(err)));
+    }
+
+    auto peer = std::string(host.c_str());
+    peer += ':';
+    peer += port.c_str();
+
+    return peer;
+}
+
 }
 
 }

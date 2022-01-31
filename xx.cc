@@ -5,6 +5,7 @@
 #include <ranges>
 #include <thread>
 
+#include <poll.h>
 #include <signal.h>
 #include <sys/socket.h>
 
@@ -140,13 +141,41 @@ class Receiver
 public:
     using Buffer = BufferPool::Buffer;
 
-    Receiver(int fd, BufQueue &queue):
+    Receiver(ScopedFd fd, BufQueue &queue):
         queue_(&queue),
-        fd_(fd)
+        svcFd_(std::move(fd))
     {
     }
 
     bool runOnce()
+    {
+        if (fd_.get() < 0 && !waitConnect())
+            return true;
+
+        return waitData();
+    }
+
+private:
+    bool waitConnect()
+    {
+        auto pfd = pollfd{svcFd_.get(), POLLIN, 0};
+        auto count = ::poll(&pfd, 1, 50);
+
+        if (!count || !(pfd.revents & POLLIN))
+            return false;
+
+        fd_ = util::net::accept(svcFd_.get());
+
+        if (fd_.get() >= 0)
+        {
+            spdlog::info("accepted connection from '{}'"
+                , util::net::peerName(fd_.get()));
+        }
+
+        return true;
+    }
+
+    bool waitData()
     {
         if (!haveHeader_)
         {
@@ -172,13 +201,12 @@ public:
         return true;
     }
 
-private:
     int readHeader()
     {
         auto buf = reinterpret_cast<uint8_t *>(&header_) + offset_;
         auto sz = sizeof(header_) - offset_;
 
-        auto len = ::read(fd_, buf, sz);
+        auto len = ::read(fd_.get(), buf, sz);
 
         if (len < 0)
             throw std::system_error(errno, std::system_category(), "read");
@@ -217,7 +245,8 @@ private:
     wire::ChunkHeader header_{ };
     Buffer buf_{ };
     size_t offset_{ };
-    int fd_{-1};
+    ScopedFd fd_{ };
+    ScopedFd svcFd_{ };
     bool haveHeader_{ };
 };
 
@@ -778,7 +807,7 @@ int recvCmd(int, char **)
     auto sess = RxSession(std::move(conf));
 
     auto req = awaitTransferRequest(
-        net::bindTcp("localhost", 4000));
+        net::bindTcp("localhost", 5000));
 
     sess.start(std::move(req));
 
