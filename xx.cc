@@ -118,7 +118,10 @@ private:
     size_t write(BDesc desc)
     {
         auto header = wire::ChunkHeader{ };
-        // TODO: fill-in info
+        header.magic = wire::ChunkHeader::Magic;
+        header.fileOffset = desc.offset;
+        header.payloadLength = desc.len;
+        header.fileId = desc.fileId;
 
         iovec iov[2] = {
             {&header, sizeof(header)},
@@ -223,7 +226,6 @@ class Writer
 public:
     using Buffer = BufferPool::Buffer;
 
-    // TODO: use fd map instead of fd
     Writer(FdMap fdMap, BufQueue &queue):
         queue_(&queue),
         fdMap_(std::move(fdMap))
@@ -563,7 +565,7 @@ private:
 
         auto fileSz = std::filesystem::file_size(filename);
 
-        auto diskRead = Reader(std::move(fd), 1, {0, fileSz}, pool_, queue_);
+        auto diskRead = Reader(std::move(fd), info.id, {0, fileSz}, pool_, queue_);
 
         readExec_.add(std::move(diskRead));
     }
@@ -594,11 +596,11 @@ public:
 
     void start(util::TransferRequest req)
     {
-        createTargetFiles(".", req.config.fileInfo);
+        createTargetFiles("tmp", req.config.fileInfo);
 
         auto fds = std::vector<ScopedFd>{ };
         auto fileMap = FdMap{ };
-        for (const auto &item : info.config.fileInfo)
+        for (const auto &item : req.config.fileInfo)
         {
             auto path = rootedPath(
                 ".",
@@ -764,13 +766,21 @@ int recvCmd(int, char **)
 
     spdlog::info("recv");
 
-    auto sess = RxSession(std::move(config));
-    sess.start();
+    auto conf = SessionConfig{
+        {
+            {"localhost", 5001},
+            {"localhost", 5002},
+            {"localhost", 5003},
+        },
+        {"localhost", 5000}
+    };
 
-    auto info = awaitTransferRequest(
+    auto sess = RxSession(std::move(conf));
+
+    auto req = awaitTransferRequest(
         net::bindTcp("localhost", 4000));
 
-    sess.start(std::move(info));
+    sess.start(std::move(req));
 
     while (sess.runOnce())
         std::this_thread::sleep_for(200ms);
