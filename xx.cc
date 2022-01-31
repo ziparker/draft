@@ -227,7 +227,7 @@ private:
 
     bool read()
     {
-        auto len = ::read(fd_, buf_.uint8Data() + offset_, buf_.size() - offset_);
+        auto len = ::read(fd_.get(), buf_.uint8Data() + offset_, buf_.size() - offset_);
 
         if (len < 0)
             throw std::system_error(errno, std::system_category(), "read");
@@ -644,7 +644,7 @@ public:
         }
 
         const auto view = std::views::transform(
-            fds, [this](const auto &fd){ return Receiver{fd.get(), queue_}; });
+            fds, [this](auto &&fd){ return Receiver{std::move(fd), queue_}; });
 
         auto receivers = std::vector<Receiver>{
             std::make_move_iterator(begin(view)),
@@ -760,34 +760,6 @@ void handleSig(int)
 // after session setup.
 //
 // this should be removed when rx is encapsulated in an rx handler.
-void recvChunks(draft::util::FdMap fileMap, std::vector<draft::util::ScopedFd> receiverFds)
-{
-    using namespace draft::util;
-    namespace fs = std::filesystem;
-
-    // per-session:
-    auto pool = BufferPool::make(1u << 21, 35);
-    auto queue = WaitQueue<BDesc>{ };
-
-    auto netReceivers = Executor{ };
-    for (const auto &fd : receiverFds)
-        netReceivers.add(Receiver(fd.get(), queue));
-
-    auto diskWriter = Writer(std::move(fileMap), queue);
-
-    auto diskWriters = Executor{
-        std::move(diskWriter)
-    };
-
-    // recv file:
-    while (!done_)
-    {
-        netReceivers.runOnce();
-        diskWriters.runOnce();
-    }
-
-    diskWriters.runOnce();
-}
 
 int recvCmd(int, char **)
 {
