@@ -166,11 +166,14 @@ private:
 
         fd_ = util::net::accept(svcFd_.get());
 
-        if (fd_.get() >= 0)
+        if (fd_.get() < 0)
         {
-            spdlog::info("accepted connection from '{}'"
-                , util::net::peerName(fd_.get()));
+            spdlog::error("accept: {}", std::strerror(errno));
+            return false;
         }
+
+        spdlog::info("accepted connection from '{}'"
+            , util::net::peerName(fd_.get()));
 
         return true;
     }
@@ -264,7 +267,12 @@ public:
     bool runOnce()
     {
         while (auto desc = queue_->tryGet())
+        {
+            if (!desc->buf)
+                break;
+
             write(std::move(*desc));
+        }
 
         return true;
     }
