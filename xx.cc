@@ -698,10 +698,10 @@ public:
             fd_ = util::net::accept(srvFd_.get());
 
             if (fd_.get() < 0)
-                return true;
+                return false;
         }
 
-        if (buf_.size() - offset_ >= 4096)
+        if (buf_.size() - offset_ < 4096)
             buf_.resize(buf_.size() + 4096);
 
         auto data = buf_.data() + offset_;
@@ -726,7 +726,19 @@ public:
 
     TransferRequest info() const
     {
-        return deserializeTransferRequest(Buffer{buf_.data(), buf_.size()});
+        auto header = reinterpret_cast<const wire::ChunkHeader *>(buf_.data());
+
+        if (header->magic != wire::ChunkHeader::Magic)
+            throw std::runtime_error("invalid chunk magic");
+
+        if (sizeof(*header) + header->payloadLength > buf_.size())
+        {
+            throw std::runtime_error(
+                "invalid payload length: " + std::to_string(header->payloadLength));
+        }
+
+        return deserializeTransferRequest(
+            Buffer{buf_.data() + sizeof(*header), header->payloadLength});
     }
 
 private:
@@ -756,6 +768,8 @@ void sendTransferRequest(int fd, const std::vector<FileInfo> &info)
 {
     auto request = util::generateTransferRequestMsg(info);
     util::net::writeAll(fd, request.data(), request.size());
+
+    spdlog::debug("sent xfer req: {}", request.size());
 }
 
 void handleSig(int)
