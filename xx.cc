@@ -512,6 +512,7 @@ struct SessionConfig
 {
     std::vector<Target> targets;
     Target service;
+    std::string pathRoot;
 };
 
 std::vector<ScopedFd> connectTargets(const std::vector<Target> &targets)
@@ -637,10 +638,11 @@ private:
 class RxSession
 {
 public:
-    RxSession(SessionConfig conf)
+    RxSession(SessionConfig conf):
+        conf_(std::move(conf))
     {
         pool_ = BufferPool::make(1u << 21, 35);
-        targetFds_ = bindTargets(conf.targets);
+        targetFds_ = bindTargets(conf_.targets);
     }
 
     ~RxSession() noexcept
@@ -650,14 +652,14 @@ public:
 
     void start(util::TransferRequest req)
     {
-        createTargetFiles("tmp", req.config.fileInfo);
+        createTargetFiles(conf_.pathRoot, req.config.fileInfo);
 
         auto fds = std::vector<ScopedFd>{ };
         auto fileMap = FdMap{ };
         for (const auto &item : req.config.fileInfo)
         {
             auto path = rootedPath(
-                ".",
+                conf_.pathRoot,
                 item.path,
                 item.targetSuffix);
 
@@ -709,6 +711,7 @@ private:
     std::shared_ptr<BufferPool> pool_;
     ThreadExecutor recvExec_;
     ThreadExecutor writeExec_;
+    SessionConfig conf_;
     std::vector<ScopedFd> targetFds_;
     std::vector<ScopedFd> fileFds_;
 };
@@ -829,7 +832,8 @@ int recvCmd(int, char **)
             {"localhost", 5002},
             {"localhost", 5003},
         },
-        {"localhost", 5000}
+        {"localhost", 5000},
+        "tmp"
     };
 
     auto sess = RxSession(std::move(conf));
