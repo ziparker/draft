@@ -431,14 +431,15 @@ public:
 
     bool runOnce()
     {
-        const auto count = std::erase_if(runq_,
+        std::erase_if(runq_,
             [](const auto &r) {
                 auto rm = !r->runOnce();
-                if (rm) spdlog::info("removing thd exec entry.");
+
+                if (rm)
+                    spdlog::info("removing thd exec entry.");
+
                 return rm;
             });
-
-        spdlog::trace("thd exec runonce {} count {}", (void *)this, count);
 
         return !empty();
     }
@@ -452,6 +453,14 @@ public:
     {
         for (auto &r : runq_)
             r->cancel();
+    }
+
+    void waitFinished() noexcept
+    {
+        try {
+            runq_.clear();
+        } catch (...) {
+        }
     }
 
 private:
@@ -654,7 +663,7 @@ public:
     {
         createTargetFiles(conf_.pathRoot, req.config.fileInfo);
 
-        auto fds = std::vector<ScopedFd>{ };
+        auto fileInfo = std::vector<FileInfo>{ };
         auto fileMap = FdMap{ };
         for (const auto &item : req.config.fileInfo)
         {
@@ -666,7 +675,12 @@ public:
             auto fd = ScopedFd{::open(path.c_str(), O_WRONLY | O_DIRECT)};
             auto rawFd = fd.get();
 
-            fds.push_back(std::move(fd));
+            fileInfo.push_back({
+                path,
+                std::move(fd),
+                item.status.size
+            });
+
             fileMap.insert({item.id, rawFd});
         }
 
@@ -683,13 +697,38 @@ public:
 
         writeExec_.add(Writer(std::move(fileMap), queue_));
 
-        fileFds_ = std::move(fds);
+        fileInfo_ = std::move(fileInfo);
     }
 
     void finish() noexcept
     {
         recvExec_.cancel();
         writeExec_.cancel();
+        writeExec_.waitFinished();
+
+        truncateFiles();
+    }
+
+    void truncateFiles()
+    {
+        for (const auto &info : fileInfo_)
+        {
+            spdlog::debug("truncate '{}' -> {}"
+                , info.path
+                , info.size);
+
+            const auto sz = std::min(
+                static_cast<size_t>(std::numeric_limits<off_t>::max()),
+                info.size);
+
+            if (::ftruncate(info.fd.get(), static_cast<off_t>(sz)))
+            {
+                spdlog::warn("unable to truncate file '{}' to size {} ({})"
+                    , info.path
+                    , info.size
+                    , std::strerror(errno));
+            }
+        }
     }
 
     bool runOnce()
@@ -707,13 +746,20 @@ public:
     }
 
 private:
+    struct FileInfo
+    {
+        std::string path;
+        ScopedFd fd;
+        size_t size{ };
+    };
+
     WaitQueue<BDesc> queue_;
     std::shared_ptr<BufferPool> pool_;
     ThreadExecutor recvExec_;
     ThreadExecutor writeExec_;
     SessionConfig conf_;
     std::vector<ScopedFd> targetFds_;
-    std::vector<ScopedFd> fileFds_;
+    std::vector<FileInfo> fileInfo_;
 };
 
 class InfoReceiver
@@ -867,7 +913,8 @@ int sendCmd(int, char **argv)
             {"localhost", 5002},
             {"localhost", 5003},
         },
-        {"localhost", 5000}
+        {"localhost", 5000},
+        { }
     };
     auto sess = TxSession(std::move(conf));
 
