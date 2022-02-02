@@ -145,37 +145,48 @@ public:
         queue_(&queue),
         svcFd_(std::move(fd))
     {
+        pool_ = BufferPool::make(1u << 21, 35);
     }
 
     bool runOnce()
     {
-        if (fd_.get() < 0 && !waitConnect())
-            return true;
+        if (fd_.get() < 0)
+        {
+            switch (waitConnect())
+            {
+                case -1:
+                    return false;
+                case 0:
+                    return true;
+                case 1:
+                    break;
+            }
+        }
 
         return waitData();
     }
 
 private:
-    bool waitConnect()
+    int waitConnect()
     {
         auto pfd = pollfd{svcFd_.get(), POLLIN, 0};
         auto count = ::poll(&pfd, 1, 50);
 
         if (!count || !(pfd.revents & POLLIN))
-            return false;
+            return 0;
 
         fd_ = util::net::accept(svcFd_.get());
 
         if (fd_.get() < 0)
         {
-            spdlog::error("accept: {}", std::strerror(errno));
-            return false;
+            spdlog::error("accept on fd {}: {}", svcFd_.get(), std::strerror(errno));
+            return -1;
         }
 
         spdlog::info("accepted connection from '{}'"
             , util::net::peerName(fd_.get()));
 
-        return true;
+        return 1;
     }
 
     bool waitData()
@@ -291,9 +302,13 @@ private:
     {
         const auto fd = getFd(desc.fileId);
 
+        spdlog::debug("writing iov len {} (rounded: {})"
+            , desc.len
+            , roundBlockSize(desc.len));
+
         iovec iov{
             desc.buf->data(),
-            desc.len
+            roundBlockSize(desc.len)
         };
 
         return writeChunk(fd, &iov, 1, desc.offset);
@@ -529,6 +544,8 @@ public:
     {
         pool_ = BufferPool::make(1u << 21, 35);
         targetFds_ = connectTargets(conf_.targets);
+
+        spdlog::info("connected tx targets.");
     }
 
     ~TxSession() noexcept
@@ -652,15 +669,19 @@ public:
         }
 
         const auto view = std::views::transform(
-            fds, [this](auto &&fd){ return Receiver{std::move(fd), queue_}; });
+            targetFds_, [this](auto &&fd){ return Receiver{std::move(fd), queue_}; });
 
         auto receivers = std::vector<Receiver>{
             std::make_move_iterator(begin(view)),
             std::make_move_iterator(end(view))};
 
+        targetFds_ = std::vector<ScopedFd>{ };
+
         recvExec_.add(std::move(receivers));
 
         writeExec_.add(Writer(std::move(fileMap), queue_));
+
+        fileFds_ = std::move(fds);
     }
 
     void finish() noexcept
@@ -689,6 +710,7 @@ private:
     ThreadExecutor recvExec_;
     ThreadExecutor writeExec_;
     std::vector<ScopedFd> targetFds_;
+    std::vector<ScopedFd> fileFds_;
 };
 
 class InfoReceiver
