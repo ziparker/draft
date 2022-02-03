@@ -81,3 +81,14 @@ session
         - add writer to exec
 
     s.runonce
+
+--
+- rx to fill bufs
+- header inline w/data, padded
+- tail writes padded by reader/sender
+    - rx can issue mixed inner/tail writes w/o leaking data from other files rx'd into megabuf
+- megabuf from pool
+    - rx fills
+    - rx walks through, creating & enqueuing subbufs
+    - subbufs are megabuf markers + shared ptr to megabuf
+    - all subbufs freed, megabuf returns to pool
