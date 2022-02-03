@@ -51,6 +51,22 @@ using BufQueue = WaitQueue<BDesc>;
 using BufferPtr = std::shared_ptr<BufferPool::Buffer>;
 using FdMap = std::unordered_map<unsigned, int>;
 
+namespace detail {
+template <class F, class Tuple, std::size_t... I>
+constexpr decltype(auto) apply_impl(F &&f, Tuple &&t, std::index_sequence<I...>)
+{
+    return std::invoke(std::forward<F>(f), std::get<I>(std::forward<Tuple>(t))...);
+}
+}
+
+template <class F, class Tuple>
+constexpr decltype(auto) apply(F &&f, Tuple &&t)
+{
+    return detail::apply_impl(
+        std::forward<F>(f), std::forward<Tuple>(t),
+        std::make_index_sequence<std::tuple_size_v<std::remove_reference_t<Tuple>>>{});
+}
+
 class Reader
 {
 public:
@@ -454,13 +470,9 @@ private:
 class TaskPool
 {
 public:
-    TaskPool()
-    {
-        q_ = std::make_unique<WaitQueue<Work>>();
-    }
+    TaskPool() = default;
 
-    explicit TaskPool(size_t size):
-        TaskPool()
+    explicit TaskPool(size_t size)
     {
         resize(size);
     }
@@ -475,12 +487,21 @@ public:
 
     void cancel() noexcept
     {
-        q_->cancel();
+        q_.cancel();
     }
 
     size_t size() const noexcept
     {
         return threads_.size();
+    }
+
+    void resize(size_t newSize)
+    {
+        const auto prevSize = threads_.size();
+        threads_.resize(newSize);
+
+        for (auto i = prevSize; i < newSize; ++i)
+            threads_[i] = std::jthread([this]{ stealWork(); });
     }
 
     template <typename Function, typename ...Args>
@@ -495,9 +516,10 @@ public:
         auto promise = std::promise<result_type>{ };
         auto future = promise.get_future();
 
-        q_->put({
+        q_.put({
             std::forward<std::decay_t<Function>>(f),
             std::forward<Args>(args)...});
+
             //std::forward_as_tuple(args...)});
             //promise = std::move(promise)});
 //                try {
@@ -522,12 +544,19 @@ private:
         {
         }
 
+        void operator()()
+        {
+            impl_->invoke();
+        }
+
         struct Impl
         {
             Impl() = default;
             Impl(const Impl &) = delete;
             Impl &operator=(const Impl &) = delete;
             virtual ~Impl() = default;
+
+            virtual void invoke() = 0;
         };
 
         template <typename Fn, typename ...Args>
@@ -539,6 +568,14 @@ private:
             {
             }
 
+            void invoke() override
+            {
+                if constexpr (!std::is_same_v<std::decay_t<Fn>, Work>)
+                    std::apply(f_, args_);
+                else
+                    ;
+            }
+
             Fn f_;
             std::tuple<Args...> args_;
         };
@@ -546,26 +583,17 @@ private:
         std::unique_ptr<Impl> impl_;
     };
 
-    void resize(size_t newSize)
-    {
-        const auto prevSize = threads_.size();
-        threads_.resize(newSize);
-
-        for (auto i = prevSize; i < newSize; ++i)
-            threads_[i] = std::jthread([this]{ stealWork(); });
-    }
-
     // TODO: forward stop token.
     void stealWork()
     {
-        while (!q_->done())
+        while (!q_.done())
         {
             //if (auto work = q_->get(); work && *work)
                 //(*work)();
         }
     }
 
-    std::unique_ptr<WaitQueue<Work>> q_;
+    WaitQueue<Work> q_;
     std::vector<std::jthread> threads_;
 };
 
@@ -727,7 +755,7 @@ public:
     TxSession(SessionConfig conf):
         conf_(std::move(conf))
     {
-        readExec_ = TaskPool(1);
+        readExec_.resize(1);
 
         pool_ = BufferPool::make(1u << 21, 35);
         targetFds_ = connectTargets(conf_.targets);

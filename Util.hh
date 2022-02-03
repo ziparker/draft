@@ -285,7 +285,7 @@ private:
 ////////////////////////////////////////////////////////////////////////////////
 // WaitQueue
 
-template <typename T>
+template <typename T, typename Alloc = std::allocator<T>>
 class WaitQueue
 {
 public:
@@ -294,7 +294,7 @@ public:
     using Lock = std::unique_lock<Mutex>;
     using Value = T;
     using ReturnType = std::optional<Value>;
-    using Queue = std::deque<Value>;
+    using Queue = std::deque<Value, Alloc>;
 
     void put(Value t)
     {
@@ -369,7 +369,7 @@ private:
     bool doPut(Value t, const Clock::time_point *deadline)
     {
         const auto op = [this, v = std::move(t)]() -> Value {
-            q_.push_back(std::move(v));
+            q_.emplace_back(std::move(v));
             return { };
         };
 
