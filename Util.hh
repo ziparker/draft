@@ -111,6 +111,8 @@ inline size_t writeChunk(int fd, iovec *iov, size_t iovCount)
 
         auto ulen = static_cast<size_t>(len);
 
+        written += ulen;
+
         while (ulen && iovCount)
         {
             const auto adv = std::min(iov->iov_len, ulen);
@@ -125,8 +127,6 @@ inline size_t writeChunk(int fd, iovec *iov, size_t iovCount)
                 --iovCount;
             }
         }
-
-        written += ulen;
     }
 
     return written;
@@ -153,6 +153,9 @@ inline size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset)
 
         auto ulen = static_cast<size_t>(len);
 
+        offset += ulen;
+        written += ulen;
+
         while (ulen && iovCount)
         {
             const auto adv = std::min(iov->iov_len, ulen);
@@ -167,9 +170,6 @@ inline size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset)
                 --iovCount;
             }
         }
-
-        offset += ulen;
-        written += ulen;
     }
 
     return written;
