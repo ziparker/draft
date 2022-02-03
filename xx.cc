@@ -221,11 +221,17 @@ private:
                 return stat == EOF ? false : true;
 
             buf_ = pool_->get();
+
+            haveHeader_ = true;
             offset_ = 0;
         }
 
         if (read())
         {
+            spdlog::trace("receiver put {} -> id {}"
+                , header_.payloadLength
+                , header_.fileId);
+
             queue_->put({
                 std::make_shared<Buffer>(std::move(buf_)),
                 header_.fileId,
@@ -244,6 +250,13 @@ private:
 
     int readHeader()
     {
+        if (offset_ > sizeof(header_))
+        {
+            throw std::runtime_error(fmt::format(
+                "receiver invalid state: reading header, offset is {}, header size is {}"
+                , offset_, sizeof(header_)));
+        }
+
         auto buf = reinterpret_cast<uint8_t *>(&header_) + offset_;
         auto sz = sizeof(header_) - offset_;
 
@@ -257,18 +270,31 @@ private:
 
         offset_ += static_cast<size_t>(len);
 
-        if (offset_ >= sizeof(header_))
+        if (offset_ < sizeof(header_))
+            return 0;
+
+        // TODO: sanity check header, trigger resync if required.
+        spdlog::trace("header magic: {:x}", header_.magic);
+
+        if (header_.magic != wire::ChunkHeader::Magic)
         {
-            haveHeader_ = true;
-            return 1;
+            spdlog::error(
+                "invalid header magic: {:x} - client fd {} - closing connection."
+                , header_.magic
+                , fd_.get());
+
+            fd_ = ScopedFd{ };
+            offset_ = 0;
+
+            return 0;
         }
 
-        return 0;
+        return 1;
     }
 
     bool read()
     {
-        auto len = ::read(fd_.get(), buf_.uint8Data() + offset_, buf_.size() - offset_);
+        auto len = ::read(fd_.get(), buf_.uint8Data() + offset_, header_.payloadLength - offset_);
 
         if (len < 0)
             throw std::system_error(errno, std::system_category(), "read");
@@ -337,6 +363,10 @@ private:
             desc.buf->data(),
             roundBlockSize(desc.len)
         };
+
+        spdlog::trace("write {} -> id {}"
+            , iov.iov_len
+            , desc.fileId);
 
         return writeChunk(fd, &iov, 1, desc.offset);
     }
@@ -607,7 +637,7 @@ public:
         sendExec_.add(std::move(senders));
 
         info_ = getFileInfo(path);
-        fileIter_ = begin(info_);
+        fileIter_ = nextFile(begin(info_), end(info_));
 
         if (fileIter_ != end(info_))
             startFile(*fileIter_);
@@ -629,8 +659,7 @@ public:
             return true;
 
         // finished reading the current file - select next file, skip directories.
-        while (++fileIter_ != end(info_) && S_ISDIR(fileIter_->status.mode))
-            ;
+        fileIter_ = nextFile(++fileIter_, end(info_));
 
         if (fileIter_ == end(info_))
         {
@@ -649,12 +678,22 @@ public:
     }
 
 private:
+    using file_info_iter_type = std::vector<FileInfo>::const_iterator;
+
+    file_info_iter_type nextFile(file_info_iter_type first, file_info_iter_type last)
+    {
+        while (first != last && !S_ISREG(first->status.mode))
+            ++first;
+
+        return first;
+    }
+
     void startFile(const FileInfo &info)
     {
         const auto &filename = info.path;
 
         auto fd = ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)};
-        spdlog::debug("tx opened file {} @ fd {}", filename, fd.get());
+        spdlog::debug("tx opened file id {}: {} @ fd {}", info.id, filename, fd.get());
 
         auto fileSz = std::filesystem::file_size(filename);
 
@@ -668,7 +707,7 @@ private:
     ThreadExecutor readExec_;
     ThreadExecutor sendExec_;
     std::vector<FileInfo> info_;
-    decltype(info_)::const_iterator fileIter_;
+    std::vector<FileInfo>::const_iterator fileIter_;
     SessionConfig conf_;
     std::vector<ScopedFd> targetFds_;
 };
