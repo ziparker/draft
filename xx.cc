@@ -65,14 +65,14 @@ public:
     {
     }
 
-    bool runOnce()
+    int operator()()
     {
         auto buf = std::make_unique<Buffer>(pool_->get());
 
         auto len = read(*buf);
 
         if (!len)
-            return false;
+            return 0;
 
         stats_.diskByteCount += len;
 
@@ -87,7 +87,7 @@ public:
 
         segment_.offset += len;
 
-        return true;
+        return 0;
     }
 
 private:
@@ -451,6 +451,124 @@ private:
     std::vector<std::unique_ptr<Runnable>> runq_;
 };
 
+class TaskPool
+{
+public:
+    TaskPool()
+    {
+        q_ = std::make_unique<WaitQueue<Work>>();
+    }
+
+    explicit TaskPool(size_t size):
+        TaskPool()
+    {
+        resize(size);
+    }
+
+    TaskPool(TaskPool &&) = default;
+    TaskPool &operator=(TaskPool &&) = default;
+
+    ~TaskPool() noexcept
+    {
+        cancel();
+    }
+
+    void cancel() noexcept
+    {
+        q_->cancel();
+    }
+
+    size_t size() const noexcept
+    {
+        return threads_.size();
+    }
+
+    template <typename Function, typename ...Args>
+    [[nodiscard]]
+    auto launch(Function &&f, Args &&...args)
+    {
+        using result_type =
+            std::invoke_result_t<
+                std::decay_t<Function>,
+                std::decay_t<Args>...>;
+
+        auto promise = std::promise<result_type>{ };
+        auto future = promise.get_future();
+
+        q_->put({
+            std::forward<std::decay_t<Function>>(f),
+            std::forward<Args>(args)...});
+            //std::forward_as_tuple(args...)});
+            //promise = std::move(promise)});
+//                try {
+//                    promise.set_value(std::invoke(std::move(f), std::move(args)));
+//                } catch (...) {
+//                    promise.set_exception(std::current_exception());
+//                }
+//            });
+
+        return future;
+    }
+
+private:
+    struct Work
+    {
+        Work() = default;
+
+        template <typename Fn, typename ...Args>
+        Work(Fn &&f, Args &&...args):
+            impl_{std::make_unique<Impl_<Fn, Args...>>(
+                std::move(f), std::forward<Args>(args)...)}
+        {
+        }
+
+        struct Impl
+        {
+            Impl() = default;
+            Impl(const Impl &) = delete;
+            Impl &operator=(const Impl &) = delete;
+            virtual ~Impl() = default;
+        };
+
+        template <typename Fn, typename ...Args>
+        struct Impl_: public Impl
+        {
+            Impl_(Fn &&f, Args &&...args):
+                f_(std::move(f)),
+                args_(std::forward_as_tuple(args...))
+            {
+            }
+
+            Fn f_;
+            std::tuple<Args...> args_;
+        };
+
+        std::unique_ptr<Impl> impl_;
+    };
+
+    void resize(size_t newSize)
+    {
+        const auto prevSize = threads_.size();
+        threads_.resize(newSize);
+
+        for (auto i = prevSize; i < newSize; ++i)
+            threads_[i] = std::jthread([this]{ stealWork(); });
+    }
+
+    // TODO: forward stop token.
+    void stealWork()
+    {
+        while (!q_->done())
+        {
+            //if (auto work = q_->get(); work && *work)
+                //(*work)();
+        }
+    }
+
+    std::unique_ptr<WaitQueue<Work>> q_;
+    std::vector<std::jthread> threads_;
+};
+
 class ThreadExecutor
 {
 public:
@@ -609,6 +727,8 @@ public:
     TxSession(SessionConfig conf):
         conf_(std::move(conf))
     {
+        readExec_ = TaskPool(1);
+
         pool_ = BufferPool::make(1u << 21, 35);
         targetFds_ = connectTargets(conf_.targets);
 
@@ -645,34 +765,49 @@ public:
 
     void finish() noexcept
     {
+        // wait on readers.
         readExec_.cancel();
         sendExec_.cancel();
     }
 
     bool runOnce()
     {
-        auto readFinished = !readExec_.runOnce();
-        sendExec_.runOnce();
-
-        // return now if we're still reading from the current file.
-        if (!readFinished)
-            return true;
-
-        // finished reading the current file - select next file, skip directories.
-        fileIter_ = nextFile(++fileIter_, end(info_));
-
-        if (fileIter_ == end(info_))
+        // wait on any readers.
+        for (auto &r : readResults_)
         {
-            // path xfer completed.
-            // run senders again to flush queued data.
-            spdlog::info("tx path transfer completed - flushing sender data.");
-
-            sendExec_.runOnce();
-
-            return false;
+            if (r.valid() && r.wait_for(1ms) == std::future_status::ready)
+                r.get();
         }
 
-        startFile(*fileIter_);
+        // remove ready readers.
+        std::erase_if(readResults_, [](const auto &r) { return !r.valid(); });
+
+        sendExec_.runOnce();
+
+        while (readResults_.size() < readExec_.size())
+        {
+            // finished reading the current file - select next file, skip directories.
+            fileIter_ = nextFile(++fileIter_, end(info_));
+
+            if (fileIter_ == end(info_))
+            {
+                // path xfer completed.
+                // run senders again to flush queued data.
+                spdlog::info("tx path transfer completed - waiting on readers & flushing sender data.");
+
+                for (auto &r : readResults_)
+                {
+                    if (r.valid())
+                        r.get();
+                }
+
+                sendExec_.runOnce();
+
+                return false;
+            }
+
+            startFile(*fileIter_);
+        }
 
         return true;
     }
@@ -699,12 +834,13 @@ private:
 
         auto diskRead = Reader(std::move(fd), info.id, {0, fileSz}, pool_, queue_);
 
-        readExec_.add(std::move(diskRead));
+        readResults_.push_back(readExec_.launch(std::move(diskRead)));
     }
 
     WaitQueue<BDesc> queue_;
     std::shared_ptr<BufferPool> pool_;
-    ThreadExecutor readExec_;
+    TaskPool readExec_;
+    std::vector<std::future<int>> readResults_;
     ThreadExecutor sendExec_;
     std::vector<FileInfo> info_;
     std::vector<FileInfo>::const_iterator fileIter_;

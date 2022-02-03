@@ -311,6 +311,13 @@ public:
         return doGet(nullptr);
     }
 
+    template <typename Rep, typename Period>
+    ReturnType get(const std::chrono::duration<Rep, Period> &tmo)
+    {
+        auto deadline = Clock::now() + tmo;
+        return doGet(&deadline);
+    }
+
     ReturnType get(const Clock::time_point &deadline)
     {
         return doGet(&deadline);
@@ -375,7 +382,7 @@ private:
         return !timedOut;
     }
 
-    auto doWithLock(const std::function<Value()> &op, const Clock::time_point *deadline, bool *timedOut = nullptr)
+    auto doWithLock(const auto &op, const Clock::time_point *deadline, bool *timedOut = nullptr)
         -> std::optional<Value>
     {
         Lock lk(mtx_, std::defer_lock_t{ });
@@ -395,13 +402,10 @@ private:
             lk.lock();
         }
 
-        if (!op)
-            return { };
-
         return op();
     }
 
-    auto doWithCondition(const std::function<Value()> &op, const Clock::time_point *deadline, bool *timedOut = nullptr)
+    auto doWithCondition(const auto &op, const Clock::time_point *deadline, bool *timedOut = nullptr)
         -> std::optional<Value>
     {
         Lock lk(mtx_, std::defer_lock_t{ });
@@ -442,13 +446,10 @@ private:
         if (done_)
             return { };
 
-        if (!op)
-            return { };
-
         return op();
     }
 
-    auto tryOp(const std::function<Value()> &op, bool *timedOut = nullptr)
+    auto tryOp(const auto &op, bool *timedOut = nullptr)
         -> std::optional<Value>
     {
         if (timedOut)
@@ -470,7 +471,7 @@ private:
     Mutex mtx_;
     std::condition_variable_any cond_;
     Queue q_;
-    bool done_{ };
+    std::atomic_bool done_{ };
 };
 
 ////////////////////////////////////////////////////////////////////////////////
