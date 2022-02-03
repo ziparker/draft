@@ -38,6 +38,15 @@ struct TransferInfo
     std::unordered_map<unsigned, ScopedFd> fileMap;
 };
 
+struct Stats
+{
+    std::atomic_uint diskByteCount{ };
+    std::atomic_uint queuedBlockCount{ };
+    std::atomic_uint dequeuedBlockCount{ };
+    std::atomic_uint netByteCount{ };
+    std::atomic_uint fileByteCount{ };
+} stats_;
+
 using BufQueue = WaitQueue<BDesc>;
 using BufferPtr = std::shared_ptr<BufferPool::Buffer>;
 using FdMap = std::unordered_map<unsigned, int>;
@@ -65,12 +74,16 @@ public:
         if (!len)
             return false;
 
+        stats_.diskByteCount += len;
+
         queue_->put({
             std::move(buf),
             fileId_,
             segment_.offset,
             len
         });
+
+        ++stats_.queuedBlockCount;
 
         segment_.offset += len;
         segment_.len -= len;
@@ -99,18 +112,21 @@ class Sender
 public:
     using Buffer = BufferPool::Buffer;
 
-    Sender(int fd, BufQueue &queue):
+    Sender(ScopedFd fd, BufQueue &queue):
         queue_(&queue),
-        fd_(fd)
+        fd_(std::move(fd))
     {
     }
-        
+
     bool runOnce()
     {
         using Clock = std::chrono::steady_clock;
 
         while (auto desc = queue_->get(Clock::now() + 200ms))
-            write(std::move(*desc));
+        {
+            ++stats_.dequeuedBlockCount;
+            stats_.netByteCount += write(std::move(*desc)) - sizeof(wire::ChunkHeader);
+        }
 
         return true;
     }
@@ -129,11 +145,11 @@ private:
             {desc.buf->data(), desc.len}
         };
 
-        return writeChunk(fd_, iov, 2);
+        return writeChunk(fd_.get(), iov, 2);
     }
 
     BufQueue *queue_{ };
-    int fd_{-1};
+    ScopedFd fd_{ };
 };
 
 class Receiver
@@ -213,6 +229,8 @@ private:
                 header_.payloadLength
             });
 
+            ++stats_.queuedBlockCount;
+
             haveHeader_ = false;
             offset_ = 0;
         }
@@ -251,6 +269,8 @@ private:
         if (len < 0)
             throw std::system_error(errno, std::system_category(), "read");
 
+        stats_.netByteCount += len;
+
         offset_ += static_cast<size_t>(len);
 
         if (offset_ >= header_.payloadLength)
@@ -287,7 +307,9 @@ public:
             if (!desc->buf)
                 break;
 
-            write(std::move(*desc));
+            ++stats_.dequeuedBlockCount;
+
+            stats_.diskByteCount += write(std::move(*desc));
         }
 
         return true;
@@ -574,11 +596,13 @@ public:
         // request here?
 
         const auto view = std::views::transform(
-            targetFds_, [this](const auto &fd){ return Sender{fd.get(), queue_}; });
+            targetFds_, [this](auto &&fd){ return Sender{std::move(fd), queue_}; });
 
         auto senders = std::vector<Sender>{
             std::make_move_iterator(begin(view)),
             std::make_move_iterator(end(view))};
+
+        targetFds_ = std::vector<ScopedFd>{ };
 
         sendExec_.add(std::move(senders));
 
@@ -850,13 +874,21 @@ std::optional<TransferRequest> awaitTransferRequest(ScopedFd fd)
     if (done_)
         return { };
 
-    return rx.info();
+    auto info = rx.info();
+
+    for (const auto &item : info.config.fileInfo)
+        stats_.fileByteCount += item.status.size;
+
+    return info;
 }
 
 void sendTransferRequest(ScopedFd fd, const std::vector<FileInfo> &info)
 {
     auto request = util::generateTransferRequestMsg(info);
     util::net::writeAll(fd.get(), request.data(), request.size());
+
+    for (const auto &item : info)
+        stats_.fileByteCount += item.status.size;
 
     spdlog::debug("sent xfer req: {}", request.size());
 }
@@ -931,6 +963,22 @@ int sendCmd(int, char **argv)
     return 0;
 }
 
+void dumpStats(const draft::util::Stats &stats)
+{
+    spdlog::info(
+        "stats:\n"
+        "  file byte count:         {}\n"
+        "  disk byte count:         {}\n"
+        "  net byte count:          {}\n"
+        "  queued block count:      {}\n"
+        "  dequeued block count:    {}\n"
+        , stats.fileByteCount
+        , stats.diskByteCount
+        , stats.netByteCount
+        , stats.queuedBlockCount
+        , stats.dequeuedBlockCount);
+}
+
 int main(int argc, char **argv)
 {
     using namespace draft::util;
@@ -948,6 +996,8 @@ int main(int argc, char **argv)
         sendCmd(argc - 1, argv + 1);
     else
         return 1;
+
+    dumpStats(stats_);
 
     return 0;
 }
