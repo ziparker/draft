@@ -333,10 +333,6 @@ private:
     {
         const auto fd = getFd(desc.fileId);
 
-        spdlog::debug("writing iov len {} (rounded: {})"
-            , desc.len
-            , roundBlockSize(desc.len));
-
         iovec iov{
             desc.buf->data(),
             roundBlockSize(desc.len)
@@ -881,7 +877,10 @@ std::optional<TransferRequest> awaitTransferRequest(ScopedFd fd)
     auto info = rx.info();
 
     for (const auto &item : info.config.fileInfo)
-        stats_.fileByteCount += item.status.size;
+    {
+        if (!S_ISDIR(item.status.mode))
+            stats_.fileByteCount += item.status.size;
+    }
 
     return info;
 }
@@ -892,7 +891,10 @@ void sendTransferRequest(ScopedFd fd, const std::vector<FileInfo> &info)
     util::net::writeAll(fd.get(), request.data(), request.size());
 
     for (const auto &item : info)
-        stats_.fileByteCount += item.status.size;
+    {
+        if (!S_ISDIR(item.status.mode))
+            stats_.fileByteCount += item.status.size;
+    }
 
     spdlog::debug("sent xfer req: {}", request.size());
 }
