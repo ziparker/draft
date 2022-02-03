@@ -707,7 +707,8 @@ public:
             fileInfo.push_back({
                 path,
                 std::move(fd),
-                item.status.size
+                item.status.size,
+                item.status.mode
             });
 
             fileMap.insert({item.id, rawFd});
@@ -737,6 +738,7 @@ public:
         writeExec_.cancel();
         writeExec_.waitFinished();
 
+        // truncate after each file.
         truncateFiles();
     }
 
@@ -744,6 +746,9 @@ public:
     {
         for (const auto &info : fileInfo_)
         {
+            if (!S_ISREG(info.mode))
+                continue;
+
             spdlog::debug("truncate '{}' -> {}"
                 , info.path
                 , info.size);
@@ -782,6 +787,7 @@ private:
         std::string path;
         ScopedFd fd;
         size_t size{ };
+        mode_t mode{ };
     };
 
     WaitQueue<BDesc> queue_;
@@ -878,7 +884,7 @@ std::optional<TransferRequest> awaitTransferRequest(ScopedFd fd)
 
     for (const auto &item : info.config.fileInfo)
     {
-        if (!S_ISDIR(item.status.mode))
+        if (S_ISREG(item.status.mode))
             stats_.fileByteCount += item.status.size;
     }
 
@@ -892,7 +898,7 @@ void sendTransferRequest(ScopedFd fd, const std::vector<FileInfo> &info)
 
     for (const auto &item : info)
     {
-        if (!S_ISDIR(item.status.mode))
+        if (S_ISREG(item.status.mode))
             stats_.fileByteCount += item.status.size;
     }
 
