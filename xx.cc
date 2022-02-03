@@ -86,7 +86,6 @@ public:
         ++stats_.queuedBlockCount;
 
         segment_.offset += len;
-        segment_.len -= len;
 
         return true;
     }
@@ -94,6 +93,11 @@ public:
 private:
     size_t read(Buffer &buf)
     {
+        spdlog::debug("reader segment progress: {}/{} ({:.1f})"
+            , segment_.offset
+            , segment_.len
+            , static_cast<double>(segment_.offset) / segment_.len * 100);
+
         auto len = roundBlockSize(segment_.len - segment_.offset);
         len = std::min(len, buf.size());
 
