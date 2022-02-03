@@ -183,8 +183,12 @@ private:
             return -1;
         }
 
-        spdlog::info("accepted connection from '{}'"
-            , util::net::peerName(fd_.get()));
+        try {
+            spdlog::info("accepted connection from '{}'"
+                , util::net::peerName(fd_.get()));
+        } catch (const std::exception &ex) {
+            spdlog::error("unable to resolve peer name: {}", ex.what());
+        }
 
         return 1;
     }
@@ -210,6 +214,7 @@ private:
             });
 
             haveHeader_ = false;
+            offset_ = 0;
         }
 
         return true;
@@ -693,6 +698,8 @@ public:
 
         targetFds_ = std::vector<ScopedFd>{ };
 
+        spdlog::debug("starting receivers.");
+
         recvExec_.add(std::move(receivers));
 
         writeExec_.add(Writer(std::move(fileMap), queue_));
@@ -778,6 +785,8 @@ public:
 
             if (fd_.get() < 0)
                 return false;
+
+            spdlog::info("accepted service connection @ fd {}", fd_.get());
         }
 
         if (buf_.size() - offset_ < 4096)
@@ -787,6 +796,7 @@ public:
         auto sz = buf_.size() - offset_;
 
         auto len = ::recv(fd_.get(), data, sz, 0);
+        spdlog::debug("rx'd {} for info", len);
 
         if (len < 0)
             throw std::system_error(errno, std::system_category(), "recv");
@@ -843,10 +853,10 @@ std::optional<TransferRequest> awaitTransferRequest(ScopedFd fd)
     return rx.info();
 }
 
-void sendTransferRequest(int fd, const std::vector<FileInfo> &info)
+void sendTransferRequest(ScopedFd fd, const std::vector<FileInfo> &info)
 {
     auto request = util::generateTransferRequestMsg(info);
-    util::net::writeAll(fd, request.data(), request.size());
+    util::net::writeAll(fd.get(), request.data(), request.size());
 
     spdlog::debug("sent xfer req: {}", request.size());
 }
@@ -866,30 +876,31 @@ void handleSig(int)
 //
 // this should be removed when rx is encapsulated in an rx handler.
 
+auto conf_ = draft::util::SessionConfig{
+    {
+        {"10.77.2.101", 5000},
+        {"10.77.3.101", 5000},
+        {"10.77.4.101", 5000},
+    },
+    {"10.77.2.101", 5002},
+    "tmp"
+};
+
 int recvCmd(int, char **)
 {
     using namespace draft::util;
 
     spdlog::info("recv");
 
-    auto conf = SessionConfig{
-        {
-            {"localhost", 5001},
-            {"localhost", 5002},
-            {"localhost", 5003},
-        },
-        {"localhost", 5000},
-        "tmp"
-    };
-
-    auto sess = RxSession(std::move(conf));
+    auto sess = RxSession(conf_);
 
     auto req = awaitTransferRequest(
-        net::bindTcp("localhost", 5000));
+        net::bindTcp(conf_.service.addr, conf_.service.port));
 
     if (!req)
         return 1;
 
+    spdlog::info("starting rx session.");
     sess.start(std::move(*req));
 
     while (sess.runOnce())
@@ -907,19 +918,10 @@ int sendCmd(int, char **argv)
     // TODO: figure out if fileinfo / xfer req should be part of session start
     // this is redundant atm.
     auto fileInfo = getFileInfo(path);
-    auto conf = SessionConfig{
-        {
-            {"localhost", 5001},
-            {"localhost", 5002},
-            {"localhost", 5003},
-        },
-        {"localhost", 5000},
-        { }
-    };
-    auto sess = TxSession(std::move(conf));
+    auto sess = TxSession(conf_);
 
-    auto fd = net::connectTcp("localhost", 5000);
-    sendTransferRequest(fd.get(), fileInfo);
+    auto fd = net::connectTcp(conf_.service.addr, conf_.service.port);
+    sendTransferRequest(std::move(fd), fileInfo);
 
     sess.start(path);
 
