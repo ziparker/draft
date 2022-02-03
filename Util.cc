@@ -415,7 +415,7 @@ void createTargetFiles(const std::string &root, const std::vector<FileInfo> &inf
             continue;
 
         auto path = rootedPath(root, info.path, info.targetSuffix);
-        spdlog::info("createTargetFiles: create file '{}'", path.string());
+        spdlog::info("createTargetFiles: create file {}: '{}'", info.id, path.string());
 
         fs::create_directories(util::dirname(path));
 
