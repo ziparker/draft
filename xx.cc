@@ -57,8 +57,8 @@ class Reader
 public:
     using Buffer = BufferPool::Buffer;
 
-    Reader(ScopedFd fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue &queue):
-        fd_{std::move(fd)},
+    Reader(const std::shared_ptr<ScopedFd> &fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue &queue):
+        fd_{fd},
         segment_{segment},
         pool_{pool},
         queue_{&queue},
@@ -68,25 +68,28 @@ public:
 
     int operator()()
     {
-        auto buf = std::make_unique<Buffer>(pool_->get());
+        while (true)
+        {
+            auto buf = std::make_unique<Buffer>(pool_->get());
 
-        auto len = read(*buf);
+            auto len = read(*buf);
 
-        if (!len)
-            return 0;
+            if (!len)
+                return 0;
 
-        stats_.diskByteCount += len;
+            stats_.diskByteCount += len;
 
-        queue_->put({
-            std::move(buf),
-            fileId_,
-            segment_.offset,
-            len
-        });
+            queue_->put({
+                std::move(buf),
+                fileId_,
+                segment_.offset,
+                len
+            });
 
-        ++stats_.queuedBlockCount;
+            ++stats_.queuedBlockCount;
 
-        segment_.offset += len;
+            segment_.offset += len;
+        }
 
         return 0;
     }
@@ -102,10 +105,10 @@ private:
         auto len = roundBlockSize(segment_.len - segment_.offset);
         len = std::min(len, buf.size());
 
-        return readChunk(fd_.get(), buf.data(), len, segment_.offset);
+        return readChunk(fd_->get(), buf.data(), len, segment_.offset);
     }
 
-    ScopedFd fd_{ };
+    std::shared_ptr<ScopedFd> fd_{ };
     Segment segment_{ };
     BufferPoolPtr pool_{ };
     BufQueue *queue_{ };
@@ -498,89 +501,37 @@ public:
                 std::decay_t<Function>,
                 std::decay_t<Args>...>;
 
-        auto promise = std::promise<result_type>{ };
-        auto future = promise.get_future();
+        auto promise = std::make_shared<std::promise<result_type>>();
+        auto future = promise->get_future();
 
-        q_.put({
-            std::forward<std::decay_t<Function>>(f),
-            std::move(promise),
-            std::forward<Args>(args)...});
-
-            //std::forward_as_tuple(args...)});
-            //promise = std::move(promise)});
-//                try {
-//                    promise.set_value(std::invoke(std::move(f), std::move(args)));
-//                } catch (...) {
-//                    promise.set_exception(std::current_exception());
-//                }
-//            });
+        q_.put([
+            f = std::move(f),
+            ...args = std::forward<Args>(args),
+            p = std::move(promise)]() mutable {
+                try {
+                    p->set_value(std::invoke(std::move(f), std::forward<Args>(args)...));
+                } catch (...) {
+                    p->set_exception(std::current_exception());
+                }
+            });
 
         return future;
     }
 
 private:
-    struct Work
-    {
-        Work() = default;
-
-        template <typename Fn, typename ...Args>
-        Work(Fn &&f, auto &&promise, Args &&...args):
-            impl_{std::make_unique<Impl_<Fn, Args...>>(
-                std::move(f), std::forward<Args>(args)...)}
-        {
-            (void)promise;
-        }
-
-        void operator()()
-        {
-            impl_->invoke();
-        }
-
-        struct Impl
-        {
-            Impl() = default;
-            Impl(const Impl &) = delete;
-            Impl &operator=(const Impl &) = delete;
-            virtual ~Impl() = default;
-
-            virtual void invoke() = 0;
-        };
-
-        template <typename Fn, typename ...Args>
-        struct Impl_: public Impl
-        {
-            Impl_(Fn &&f, Args &&...args):
-                f_(std::move(f)),
-                args_(std::forward_as_tuple(args...))
-            {
-            }
-
-            void invoke() override
-            {
-                if constexpr (!std::is_same_v<std::decay_t<Fn>, Work>) {
-                    std::apply(f_, args_);
-                }
-                else { }
-            }
-
-            Fn f_;
-            std::tuple<Args...> args_;
-        };
-
-        std::unique_ptr<Impl> impl_;
-    };
+    using Work = std::function<void()>;
 
     // TODO: forward stop token.
     void stealWork()
     {
         while (!q_.done())
         {
-            if (auto work = q_.get())
+            if (auto work = q_.get(); work && *work)
                 (*work)();
         }
     }
 
-    WaitQueue<Work, std::allocator<Work>, std::list> q_;
+    WaitQueue<Work> q_;
     std::vector<std::jthread> threads_;
 };
 
@@ -847,7 +798,7 @@ private:
 
         auto fileSz = std::filesystem::file_size(filename);
 
-        auto diskRead = Reader(std::move(fd), info.id, {0, fileSz}, pool_, queue_);
+        auto diskRead = Reader(std::make_shared<ScopedFd>(std::move(fd)), info.id, {0, fileSz}, pool_, queue_);
 
         readResults_.push_back(readExec_.launch(std::move(diskRead)));
     }
