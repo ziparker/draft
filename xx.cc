@@ -1111,7 +1111,7 @@ int sendCmd(int, char **argv)
     sess.start(path);
 
     while (sess.runOnce())
-        std::this_thread::sleep_for(200ms);
+        ;
 
     return 0;
 }
