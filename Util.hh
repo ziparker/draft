@@ -296,6 +296,14 @@ public:
     using ReturnType = std::optional<Value>;
     using Queue = Q<Value>;
 
+    enum class Status
+    {
+        OK,
+        TimedOut,
+        Full,
+        Error
+    };
+
     void put(Value t)
     {
         doPut(std::move(t), nullptr);
@@ -349,6 +357,16 @@ public:
         done_ = false;
     }
 
+    void setSizeLimit(size_t limit)
+    {
+        sizeLimit_ = limit;
+    }
+
+    size_t sizeLimit(size_t limit) const noexcept
+    {
+        return sizeLimit_;
+    }
+
     bool done() const noexcept
     {
         return done_;
@@ -368,13 +386,20 @@ private:
 
     bool doPut(Value t, const Clock::time_point *deadline)
     {
-        const auto op = [this, v = std::move(t)]() -> Value {
-            q_.emplace_back(std::move(v));
-            return { };
+        const auto op = [this, v = std::move(t)]() -> Status {
+            if (q_.size() >= sizeLimit_)
+                return Status::Full;
+
+            q_.push_back(std::move(v));
+
+            return Status::OK;
         };
 
         bool timedOut{ };
-        doWithLock(op, deadline, &timedOut);
+        const auto status = doWithLock(op, deadline, &timedOut);
+
+        if (status == Status::Full)
+            return false;
 
         if (!timedOut)
             cond_.notify_one();
@@ -383,7 +408,7 @@ private:
     }
 
     auto doWithLock(const auto &op, const Clock::time_point *deadline, bool *timedOut = nullptr)
-        -> std::optional<Value>
+        -> std::optional<std::invoke_result_t<decltype(op)>>
     {
         Lock lk(mtx_, std::defer_lock_t{ });
 
@@ -471,6 +496,7 @@ private:
     Mutex mtx_;
     std::condition_variable_any cond_;
     Queue q_;
+    size_t sizeLimit_{std::numeric_limits<size_t>::max()};
     std::atomic_bool done_{ };
 };
 

@@ -694,6 +694,7 @@ public:
         conf_(std::move(conf))
     {
         readExec_.resize(1);
+        queue_.setSizeLimit(readExec_.size());
 
         pool_ = BufferPool::make(1u << 21, 35);
         targetFds_ = connectTargets(conf_.targets);
