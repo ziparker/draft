@@ -66,11 +66,12 @@ public:
     {
     }
 
+    // TODO: take stop token through executor/task pool.
     int operator()()
     {
         while (true)
         {
-            auto buf = std::make_unique<Buffer>(pool_->get());
+            auto buf = std::make_shared<Buffer>(pool_->get());
 
             auto len = read(*buf);
 
@@ -79,12 +80,14 @@ public:
 
             stats_.diskByteCount += len;
 
-            queue_->put({
-                std::move(buf),
-                fileId_,
-                segment_.offset,
-                len
-            });
+            // keep trying to push this buffer onto the queue.
+            //
+            // if the queue is pushing back, we don't want to stack-up more
+            // work.
+            //
+            // TODO: test stop token.
+            while (!queue_->put({buf, fileId_, segment_.offset, len}))
+                ;
 
             ++stats_.queuedBlockCount;
 
@@ -130,7 +133,7 @@ public:
     {
         using Clock = std::chrono::steady_clock;
 
-        while (auto desc = queue_->get(Clock::now() + 200ms))
+        while (auto desc = queue_->get(Clock::now() + 1ms))
         {
             ++stats_.dequeuedBlockCount;
             stats_.netByteCount += write(std::move(*desc)) - sizeof(wire::ChunkHeader);
@@ -473,9 +476,19 @@ public:
         cancel();
     }
 
+    void setQueueSizeLimit(size_t limit)
+    {
+        q_.setSizeLimit(limit);
+    }
+
     void cancel() noexcept
     {
         q_.cancel();
+    }
+
+    bool cancelled() const noexcept
+    {
+        return q_.done();
     }
 
     size_t size() const noexcept
@@ -504,7 +517,7 @@ public:
         auto promise = std::make_shared<std::promise<result_type>>();
         auto future = promise->get_future();
 
-        q_.put([
+        auto ok = q_.put([
             f = std::move(f),
             ...args = std::forward<Args>(args),
             p = std::move(promise)]() mutable {
@@ -515,7 +528,10 @@ public:
                 }
             });
 
-        return future;
+        if (!ok)
+            return std::optional<decltype(future)>{ };
+
+        return std::make_optional(std::move(future));
     }
 
 private:
@@ -538,6 +554,12 @@ private:
 class ThreadExecutor
 {
 public:
+    enum Options
+    {
+        None = 0,
+        DoFinalize = 1
+    };
+
     template <typename ...Args>
     ThreadExecutor(Args &&...args)
     {
@@ -545,21 +567,21 @@ public:
     }
 
     template <typename T>
-    ThreadExecutor &add(T &&runnable)
+    ThreadExecutor &add(T &&runnable, unsigned opts = 0)
     {
         runq_.push_back(
-            std::make_unique<Runnable_<T>>(std::forward<T>(runnable)));
+            std::make_unique<Runnable_<T>>(std::forward<T>(runnable), opts));
 
         return *this;
     }
 
     template <typename T>
-    ThreadExecutor &add(std::vector<T> runnables)
+    ThreadExecutor &add(std::vector<T> runnables, unsigned opts = 0)
     {
         auto runnablesView = std::views::transform(
-            runnables, [](auto &&r) {
+            runnables, [opts](auto &&r) {
                 return std::make_unique<Runnable_<T>>(
-                    std::forward<T>(r));
+                    std::forward<T>(r), opts);
             });
 
         runq_.insert(
@@ -617,12 +639,19 @@ private:
     class Runnable_: public Runnable
     {
     public:
-        Runnable_(T t)
+        Runnable_(T t, unsigned options = 0):
+            options_(options)
         {
             thd_ = std::jthread(
                 [this](std::stop_token token, T t_) mutable {
                     while (!token.stop_requested() && t_.runOnce())
                         ;
+
+                    if (token.stop_requested() && (options_ & Options::DoFinalize))
+                    {
+                        spdlog::debug("thd runnable finalizing.");
+                        t_.runOnce();
+                    }
 
                     finished_ = true;
                     spdlog::debug("thd runnable exiting.");
@@ -646,6 +675,7 @@ private:
         }
 
         std::atomic_bool finished_{ };
+        unsigned options_{ };
         std::jthread thd_{ };
     };
 
@@ -694,7 +724,9 @@ public:
         conf_(std::move(conf))
     {
         readExec_.resize(1);
-        queue_.setSizeLimit(readExec_.size());
+        readExec_.setQueueSizeLimit(10);
+
+        queue_.setSizeLimit(100);
 
         pool_ = BufferPool::make(1u << 21, 35);
         targetFds_ = connectTargets(conf_.targets);
@@ -721,7 +753,7 @@ public:
 
         targetFds_ = std::vector<ScopedFd>{ };
 
-        sendExec_.add(std::move(senders));
+        sendExec_.add(std::move(senders), ThreadExecutor::Options::DoFinalize);
 
         info_ = getFileInfo(path);
         fileIter_ = nextFile(begin(info_), end(info_));
@@ -739,41 +771,59 @@ public:
 
     bool runOnce()
     {
-        // wait on any readers.
+        using Clock = std::chrono::steady_clock;
+
+        // process results from completed readers.
         for (auto &r : readResults_)
         {
-            if (r.valid() && r.wait_for(1ms) == std::future_status::ready)
+            if (r.valid() && r.wait_for(0ns) == std::future_status::ready)
                 r.get();
         }
 
-        // remove ready readers.
+        // remove completed readers from the results list.
         std::erase_if(readResults_, [](const auto &r) { return !r.valid(); });
 
         sendExec_.runOnce();
 
-        while (readResults_.size() < readExec_.size())
+        // if there are more files to read, try to submit reads for them.
+        // if our reader queue is full, we'll time-out and try again later.
+        while (fileIter_ != end(info_) && startFile(*fileIter_))
         {
-            // finished reading the current file - select next file, skip directories.
+            // advance file iterator, skipping things we don't want to send,
+            // like directories, and on to the next regular file.
             fileIter_ = nextFile(++fileIter_, end(info_));
+        }
 
-            if (fileIter_ == end(info_))
+        // once we've finished submitting reads for all of our files, start
+        // processing completions until we're done.
+        //
+        // TODO: use info list, resubmit failed submissions.
+        if (fileIter_ == end(info_))
+        {
+            spdlog::info("tx path transfer completed - waiting on readers & flushing sender data.");
+
+            // wait on remaining readers (currently assuming they all completed
+            // successfully).
+            for (auto &r : readResults_)
             {
-                // path xfer completed.
-                // run senders again to flush queued data.
-                spdlog::info("tx path transfer completed - waiting on readers & flushing sender data.");
-
-                for (auto &r : readResults_)
-                {
-                    if (r.valid())
-                        r.get();
-                }
-
-                sendExec_.runOnce();
-
-                return false;
+                if (r.valid())
+                    r.get();
             }
 
-            startFile(*fileIter_);
+            readResults_.clear();
+
+            spdlog::info("finished waiting on readers, now flushing data to network.");
+
+            // if readers all finished successfully, run senders one more time
+            // to flush their input queues.
+            //
+            // TODO: check for resubmission requirement, flush only when we're
+            // done reading.
+            sendExec_.cancel();
+            sendExec_.waitFinished();
+
+            // we don't need to keep running anymore.
+            return false;
         }
 
         return true;
@@ -790,18 +840,40 @@ private:
         return first;
     }
 
-    void startFile(const FileInfo &info)
+    bool startFile(const FileInfo &info)
     {
-        const auto &filename = info.path;
+        using Clock = std::chrono::steady_clock;
 
-        auto fd = ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)};
-        spdlog::debug("tx opened file id {}: {} @ fd {}", info.id, filename, fd.get());
+        const auto &filename = info.path;
+        auto fd = std::make_shared<ScopedFd>(
+            ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)});
+
+        spdlog::debug("tx opened file id {}: {} @ fd {}", info.id, filename, fd->get());
 
         auto fileSz = std::filesystem::file_size(filename);
 
-        auto diskRead = Reader(std::make_shared<ScopedFd>(std::move(fd)), info.id, {0, fileSz}, pool_, queue_);
+        // try for a while to submit this reader.
+        // we may time-out here if the network is bottlenecking things.
+        const auto deadline = Clock::now() + 200ms;
+        while (!readExec_.cancelled() && Clock::now() < deadline)
+        {
+            const auto rateDeadline = Clock::now() + 1ms;
 
-        readResults_.push_back(readExec_.launch(std::move(diskRead)));
+            auto diskRead = Reader(fd, info.id, {0, fileSz}, pool_, queue_);
+
+            if (auto future = readExec_.launch(std::move(diskRead)))
+            {
+                readResults_.push_back(std::move(*future));
+                return true;
+            }
+
+            std::this_thread::sleep_until(rateDeadline);
+        }
+
+        spdlog::debug("start file {}: timed-out, will resubmit later on."
+            , filename);
+
+        return false;
     }
 
     WaitQueue<BDesc> queue_;

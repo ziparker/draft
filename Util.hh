@@ -304,14 +304,14 @@ public:
         Error
     };
 
-    void put(Value t)
+    bool put(Value t)
     {
-        doPut(std::move(t), nullptr);
+        return doPut(std::move(t), nullptr) == Status::OK;
     }
 
     bool put(Value t, const Clock::time_point &deadline)
     {
-        return doPut(std::move(t), &deadline);
+        return doPut(std::move(t), &deadline) == Status::OK;
     }
 
     ReturnType get()
@@ -384,7 +384,7 @@ private:
         return doWithCondition(op, deadline);
     }
 
-    bool doPut(Value t, const Clock::time_point *deadline)
+    Status doPut(Value t, const Clock::time_point *deadline)
     {
         const auto op = [this, v = std::move(t)]() -> Status {
             if (q_.size() >= sizeLimit_)
@@ -398,13 +398,13 @@ private:
         bool timedOut{ };
         const auto status = doWithLock(op, deadline, &timedOut);
 
-        if (status == Status::Full)
-            return false;
+        if (status && *status == Status::Full)
+            return *status;
 
         if (!timedOut)
             cond_.notify_one();
 
-        return !timedOut;
+        return timedOut ? Status::TimedOut : Status::OK;
     }
 
     auto doWithLock(const auto &op, const Clock::time_point *deadline, bool *timedOut = nullptr)
