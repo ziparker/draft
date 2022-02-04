@@ -2,6 +2,7 @@
 #include <chrono>
 #include <filesystem>
 #include <iterator>
+#include <list>
 #include <ranges>
 #include <thread>
 
@@ -502,6 +503,7 @@ public:
 
         q_.put({
             std::forward<std::decay_t<Function>>(f),
+            std::move(promise),
             std::forward<Args>(args)...});
 
             //std::forward_as_tuple(args...)});
@@ -522,10 +524,11 @@ private:
         Work() = default;
 
         template <typename Fn, typename ...Args>
-        Work(Fn &&f, Args &&...args):
+        Work(Fn &&f, auto &&promise, Args &&...args):
             impl_{std::make_unique<Impl_<Fn, Args...>>(
                 std::move(f), std::forward<Args>(args)...)}
         {
+            (void)promise;
         }
 
         void operator()()
@@ -554,10 +557,10 @@ private:
 
             void invoke() override
             {
-                if constexpr (!std::is_same_v<std::decay_t<Fn>, Work>)
+                if constexpr (!std::is_same_v<std::decay_t<Fn>, Work>) {
                     std::apply(f_, args_);
-                else
-                    ;
+                }
+                else { }
             }
 
             Fn f_;
@@ -577,7 +580,7 @@ private:
         }
     }
 
-    WaitQueue<Work> q_;
+    WaitQueue<Work, std::allocator<Work>, std::list> q_;
     std::vector<std::jthread> threads_;
 };
 
