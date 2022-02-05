@@ -757,9 +757,6 @@ public:
 
         info_ = getFileInfo(path);
         fileIter_ = nextFile(begin(info_), end(info_));
-
-        if (fileIter_ != end(info_))
-            startFile(*fileIter_);
     }
 
     void finish() noexcept
