@@ -915,6 +915,15 @@ public:
             auto fd = ScopedFd{::open(path.c_str(), O_WRONLY | O_DIRECT)};
             auto rawFd = fd.get();
 
+            if (rawFd < 0)
+            {
+                spdlog::error("unable to open file '{}': {}"
+                    , path.native()
+                    , std::strerror(errno));
+
+                continue;
+            }
+
             fileInfo.push_back({
                 path,
                 std::move(fd),
