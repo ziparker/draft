@@ -366,6 +366,14 @@ private:
     {
         const auto fd = getFd(desc.fileId);
 
+        if (fd < 0)
+        {
+            spdlog::error("no mapped fd for file id {}"
+                , desc.fileId);
+
+            return 0;
+        }
+
         iovec iov{
             desc.buf->data(),
             roundBlockSize(desc.len)
