@@ -285,7 +285,7 @@ private:
 ////////////////////////////////////////////////////////////////////////////////
 // WaitQueue
 
-template <typename T, typename Alloc = std::allocator<T>, template <typename> class Q = std::deque>
+template <typename T, typename Alloc = std::allocator<T>, template <typename, typename> class Q = std::deque>
 class WaitQueue
 {
 public:
@@ -294,7 +294,7 @@ public:
     using Lock = std::unique_lock<Mutex>;
     using Value = T;
     using ReturnType = std::optional<Value>;
-    using Queue = Q<Value>;
+    using Queue = Q<Value, Alloc>;
 
     enum class Status
     {
