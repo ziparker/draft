@@ -309,12 +309,7 @@ private:
             return -1;
         }
 
-        try {
-            spdlog::info("accepted connection from '{}'"
-                , util::net::peerName(fd_.get()));
-        } catch (const std::exception &ex) {
-            spdlog::error("unable to resolve peer name: {}", ex.what());
-        }
+        spdlog::info("accepted connection on fd {}", fd_.get());
 
         return 1;
     }
@@ -438,7 +433,7 @@ public:
         
     bool runOnce()
     {
-        while (auto desc = queue_->tryGet())
+        while (auto desc = queue_->get(100ms))
         {
             if (!desc->buf)
                 break;
