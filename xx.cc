@@ -6,6 +6,8 @@
 #include <ranges>
 #include <thread>
 
+#include <getopt.h>
+#include <libgen.h>
 #include <poll.h>
 #include <signal.h>
 #include <sys/socket.h>
@@ -39,6 +41,18 @@ struct TransferInfo
     std::unordered_map<unsigned, ScopedFd> fileMap;
 };
 
+struct SessionConfig
+{
+    std::vector<NetworkTarget> targets;
+    NetworkTarget service;
+    std::string pathRoot{"."};
+};
+
+struct Options
+{
+    SessionConfig session;
+};
+
 struct Stats
 {
     std::atomic_uint diskByteCount{ };
@@ -51,6 +65,78 @@ struct Stats
 using BufQueue = WaitQueue<BDesc>;
 using BufferPtr = std::shared_ptr<BufferPool::Buffer>;
 using FdMap = std::unordered_map<unsigned, int>;
+
+Options parseOptions(int argc, char **argv)
+{
+    static constexpr const char *shortOpts = "hp:s:t:";
+    static constexpr struct option longOpts[] = {
+        {"help", no_argument, nullptr, 'h'},
+        {"path", required_argument, nullptr, 'p'},
+        {"service", required_argument, nullptr, 's'},
+        {"target", required_argument, nullptr, 't'},
+        {nullptr, 0, nullptr, 0}
+    };
+
+    auto subArgc = argc - 1;
+    auto subArgv = argv + 1;
+
+    const auto usage = [argv] {
+            spdlog::info(
+                "usage: {} (send|recv) [-h][-p <path>][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
+                , ::basename(argv[0]));
+        };
+
+    auto opts = Options{ };
+
+    for (int c = 0; (c = getopt_long(subArgc, subArgv, shortOpts, longOpts, 0)) >= 0; )
+    {
+        switch (c)
+        {
+            case 'h':
+                usage();
+                std::exit(0);
+            case 'p':
+                opts.session.pathRoot = optarg;
+                break;
+            case 's':
+                opts.session.service = util::parseTarget(optarg);
+                break;
+            case 't':
+                opts.session.targets.push_back(util::parseTarget(optarg));
+                break;
+            case '?':
+                std::exit(1);
+            default:
+                break;
+        }
+    }
+
+    if (optind < subArgc)
+    {
+        spdlog::error("trailing args..");
+        std::exit(1);
+    }
+
+    if (opts.session.service.ip.empty() || !opts.session.service.port)
+    {
+        spdlog::error("missing required argument: --service");
+        std::exit(1);
+    }
+
+    if (opts.session.targets.empty())
+    {
+        spdlog::error("missing required argument: --target");
+        std::exit(1);
+    }
+
+    spdlog::info("service: {}:{}", opts.session.service.ip, opts.session.service.port);
+
+    spdlog::info("targets:");
+    for (const auto &target : opts.session.targets)
+        spdlog::info("  {}:{}", target.ip, target.port);
+
+    return opts;
+}
 
 class Reader
 {
@@ -690,36 +776,23 @@ private:
     std::vector<std::unique_ptr<Runnable>> runq_;
 };
 
-struct Target
-{
-    std::string addr;
-    unsigned port{ };
-};
-
-struct SessionConfig
-{
-    std::vector<Target> targets;
-    Target service;
-    std::string pathRoot;
-};
-
-std::vector<ScopedFd> connectTargets(const std::vector<Target> &targets)
+std::vector<ScopedFd> connectNetworkTargets(const std::vector<NetworkTarget> &targets)
 {
     const auto view = std::views::transform(
         targets,
-        [](const Target &t) {
-            return net::connectTcp(t.addr, t.port);
+        [](const NetworkTarget &t) {
+            return net::connectTcp(t.ip, t.port);
         });
 
     return {begin(view), end(view)};
 }
 
-std::vector<ScopedFd> bindTargets(const std::vector<Target> &targets)
+std::vector<ScopedFd> bindNetworkTargets(const std::vector<NetworkTarget> &targets)
 {
     const auto view = std::views::transform(
         targets,
-        [](const Target &t) {
-            return net::bindTcp(t.addr, t.port);
+        [](const NetworkTarget &t) {
+            return net::bindTcp(t.ip, t.port);
         });
 
     return {begin(view), end(view)};
@@ -737,7 +810,7 @@ public:
         queue_.setSizeLimit(100);
 
         pool_ = BufferPool::make(1u << 21, 35);
-        targetFds_ = connectTargets(conf_.targets);
+        targetFds_ = connectNetworkTargets(conf_.targets);
 
         spdlog::info("connected tx targets.");
     }
@@ -899,7 +972,7 @@ public:
         conf_(std::move(conf))
     {
         pool_ = BufferPool::make(1u << 21, 35);
-        targetFds_ = bindTargets(conf_.targets);
+        targetFds_ = bindNetworkTargets(conf_.targets);
     }
 
     ~RxSession() noexcept
@@ -1148,26 +1221,19 @@ void handleSig(int)
 //
 // this should be removed when rx is encapsulated in an rx handler.
 
-auto conf_ = draft::util::SessionConfig{
-    {
-        {"10.77.2.101", 5000},
-        {"10.77.3.101", 5000},
-        {"10.77.4.101", 5000},
-    },
-    {"10.77.2.101", 5002},
-    "tmp"
-};
-
-int recvCmd(int, char **)
+int recvCmd(int argc, char **argv)
 {
     using namespace draft::util;
 
     spdlog::info("recv");
 
-    auto sess = RxSession(conf_);
+    const auto opts = parseOptions(argc, argv);
+    const auto &service = opts.session.service;
+
+    auto sess = RxSession(opts.session);
 
     auto req = awaitTransferRequest(
-        net::bindTcp(conf_.service.addr, conf_.service.port));
+        net::bindTcp(service.ip, service.port));
 
     if (!req)
         return 1;
@@ -1181,18 +1247,19 @@ int recvCmd(int, char **)
     return 0;
 }
 
-int sendCmd(int, char **argv)
+int sendCmd(int argc, char **argv)
 {
     using namespace draft::util;
 
-    const auto path = std::string{argv[1]};
+    const auto opts = parseOptions(argc, argv);
+    const auto &path = opts.session.pathRoot;
 
     // TODO: figure out if fileinfo / xfer req should be part of session start
     // this is redundant atm.
     auto fileInfo = getFileInfo(path);
-    auto sess = TxSession(conf_);
+    auto sess = TxSession(opts.session);
 
-    auto fd = net::connectTcp(conf_.service.addr, conf_.service.port);
+    auto fd = net::connectTcp(opts.session.service.ip, opts.session.service.port);
     sendTransferRequest(std::move(fd), fileInfo);
 
     sess.start(path);
@@ -1225,17 +1292,35 @@ int main(int argc, char **argv)
 
     spdlog::cfg::load_env_levels();
 
+    const auto usage = [argv] {
+        spdlog::info("usage: {} (send|recv) [options...]"
+            , ::basename(argv[0]));
+    };
+
+    if (argc < 2)
+    {
+        usage();
+        return 1;
+    }
+
     struct sigaction action{ };
     action.sa_handler = handleSig;
     sigaction(SIGINT, &action, nullptr);
 
     const auto cmd = std::string{argv[1]};
-    if (cmd == "rx")
-        recvCmd(argc - 1, argv + 1);
-    else if (cmd == "tx")
-        sendCmd(argc - 1, argv + 1);
+    if (cmd == "recv")
+    {
+        recvCmd(argc, argv);
+    }
+    else if (cmd == "send")
+    {
+        sendCmd(argc, argv);
+    }
     else
+    {
+        usage();
         return 1;
+    }
 
     dumpStats(stats_);
 
