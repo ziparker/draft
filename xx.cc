@@ -18,6 +18,17 @@
 #include "Util.hh"
 #include "UtilJson.hh"
 
+namespace {
+
+sig_atomic_t done_;
+
+void handleSig(int)
+{
+    done_ = 1;
+}
+
+}
+
 namespace draft::util {
 
 using namespace std::chrono_literals;
@@ -61,6 +72,8 @@ struct Stats
     std::atomic_uint netByteCount{ };
     std::atomic_uint fileByteCount{ };
 } stats_;
+
+constexpr auto BufSize = size_t{1u << 22};
 
 using BufQueue = WaitQueue<BDesc>;
 using BufferPtr = std::shared_ptr<BufferPool::Buffer>;
@@ -258,7 +271,7 @@ public:
         queue_(&queue),
         svcFd_(std::move(fd))
     {
-        pool_ = BufferPool::make(1u << 21, 35);
+        pool_ = BufferPool::make(BufSize, 35);
     }
 
     bool runOnce()
@@ -809,7 +822,7 @@ public:
 
         queue_.setSizeLimit(100);
 
-        pool_ = BufferPool::make(1u << 21, 35);
+        pool_ = BufferPool::make(BufSize, 35);
         targetFds_ = connectNetworkTargets(conf_.targets);
 
         spdlog::info("connected tx targets.");
@@ -971,7 +984,7 @@ public:
     RxSession(SessionConfig conf):
         conf_(std::move(conf))
     {
-        pool_ = BufferPool::make(1u << 21, 35);
+        pool_ = BufferPool::make(BufSize, 35);
         targetFds_ = bindNetworkTargets(conf_.targets);
     }
 
@@ -1169,8 +1182,6 @@ private:
     bool haveInfo_{ };
 };
 
-sig_atomic_t done_;
-
 std::optional<TransferRequest> awaitTransferRequest(ScopedFd fd)
 {
     auto rx = InfoReceiver{std::move(fd)};
@@ -1204,11 +1215,6 @@ void sendTransferRequest(ScopedFd fd, const std::vector<FileInfo> &info)
     }
 
     spdlog::debug("sent xfer req: {}", request.size());
-}
-
-void handleSig(int)
-{
-    done_ = 1;
 }
 
 }
@@ -1270,6 +1276,35 @@ int sendCmd(int argc, char **argv)
     return 0;
 }
 
+alignas(512) uint8_t buf_[1u << 22];
+
+int writeTestCmd(int, char **)
+{
+    using draft::util::ScopedFd;
+    using draft::util::writeChunk;
+
+    auto fd = ScopedFd(::open("/dev/urandom", O_RDONLY));
+
+    if (auto len = ::read(fd.get(), buf_, sizeof(buf_)); len > 0)
+        spdlog::info("randomized {} bytes in write buffer.", len);
+
+    fd = ScopedFd(::open("xxio.out", O_WRONLY | O_DIRECT | O_CREAT | O_TRUNC, 0644));
+
+    size_t offset{ };
+
+    while (!done_)
+    {
+        iovec iov{ buf_, sizeof(buf_) };
+
+        spdlog::trace("write {} -> xxio.out"
+            , sizeof(buf_));
+
+        offset += writeChunk(fd.get(), &iov, 1, offset);
+    }
+
+    spdlog::info("write test done - wrote {} bytes.", offset);
+}
+
 void dumpStats(const draft::util::Stats &stats)
 {
     spdlog::info(
@@ -1315,6 +1350,10 @@ int main(int argc, char **argv)
     else if (cmd == "send")
     {
         sendCmd(argc, argv);
+    }
+    else if (cmd == "wrtest")
+    {
+        writeTestCmd(argc, argv);
     }
     else
     {
