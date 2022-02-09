@@ -168,7 +168,7 @@ public:
     // TODO: take stop token through executor/task pool.
     int operator()()
     {
-        while (true)
+        while (!done_)
         {
             auto buf = std::make_shared<Buffer>(pool_->get());
 
@@ -185,7 +185,7 @@ public:
             // work.
             //
             // TODO: test stop token.
-            while (!queue_->put({buf, fileId_, segment_.offset, len}))
+            while (!done_ && !queue_->put({buf, fileId_, segment_.offset, len}))
                 ;
 
             ++stats_.queuedBlockCount;
@@ -892,7 +892,7 @@ public:
             // successfully).
             for (auto &r : readResults_)
             {
-                if (r.valid())
+                if (!done_ && r.valid())
                     r.get();
             }
 
@@ -996,6 +996,9 @@ public:
         auto fileMap = FdMap{ };
         for (const auto &item : req.config.fileInfo)
         {
+            if (!S_ISREG(item.status.mode))
+                continue;
+
             auto path = rootedPath(
                 conf_.pathRoot,
                 item.path,
@@ -1242,8 +1245,8 @@ int recvCmd(int argc, char **argv)
     spdlog::info("starting rx session.");
     sess.start(std::move(*req));
 
-    while (sess.runOnce())
-        std::this_thread::sleep_for(200ms);
+    while (!done_ && sess.runOnce())
+        std::this_thread::sleep_for(100ms);
 
     return 0;
 }
