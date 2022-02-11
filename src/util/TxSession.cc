@@ -113,6 +113,9 @@ bool TxSession::runOnce()
     // TODO: use info list, resubmit failed submissions.
     if (fileIter_ == end(info_))
     {
+        // TODO: check - remove this section - iter == end(info) triggers wait
+        // - if read results is empty, after erase, cancel, wait finished (w/timeout) & return when waitfin returns true
+
         spdlog::info("tx path transfer completed - waiting on readers & flushing sender data.");
 
         // wait on remaining readers (currently assuming they all completed
