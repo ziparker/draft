@@ -60,6 +60,8 @@ void installSigHandler()
     struct sigaction action{ };
     action.sa_handler = handleSigint;
     sigaction(SIGINT, &action, nullptr);
+
+    // TODO: handle sigpipe for when rx is killed
 }
 
 struct Options
