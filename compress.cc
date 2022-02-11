@@ -191,9 +191,6 @@ void decompress(const CompressOptions &opts)
     if (outFd.get() < 0)
         throw std::system_error(errno, std::system_category(), "draft.decompress: open");
 
-    blosc2_dparams dparams = BLOSC2_DPARAMS_DEFAULTS;
-    dparams.nthreads = opts.nThreads;
-
     auto *chunk = blosc2_schunk_open(opts.inPath.c_str());
     if (!chunk)
     {
