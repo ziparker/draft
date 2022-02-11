@@ -27,6 +27,7 @@
 #include <spdlog/spdlog.h>
 
 #include <draft/util/Reader.hh>
+#include <draft/util/Stats.hh>
 
 namespace draft::util {
 
@@ -53,7 +54,7 @@ int Reader::operator()()
         if (!len)
             return 0;
 
-        //stats_.diskByteCount += len;
+        stats().diskByteCount += len;
 
         // keep trying to push this buffer onto the queue.
         //
@@ -65,7 +66,7 @@ int Reader::operator()()
         while (!queue_->put({buf, fileId_, segment_.offset, len}))
             ;
 
-        //++stats_.queuedBlockCount;
+        ++stats().queuedBlockCount;
 
         segment_.offset += len;
     }

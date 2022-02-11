@@ -26,6 +26,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include <draft/util/Stats.hh>
 #include <draft/util/Writer.hh>
 
 namespace draft::util {
@@ -45,10 +46,9 @@ bool Writer::runOnce()
         if (!desc->buf)
             break;
 
-        //++stats_.dequeuedBlockCount;
+        ++stats().dequeuedBlockCount;
 
-        //stats_.diskByteCount += write(std::move(*desc));
-        write(std::move(*desc));
+        stats().diskByteCount += write(std::move(*desc));
     }
 
     return true;

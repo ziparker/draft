@@ -31,6 +31,7 @@
 
 #include <draft/util/InfoReceiver.hh>
 #include <draft/util/RxSession.hh>
+#include <draft/util/Stats.hh>
 #include <draft/util/TxSession.hh>
 #include <draft/util/Util.hh>
 #include <draft/util/UtilJson.hh>
@@ -38,8 +39,6 @@
 #include "Cmd.hh"
 
 namespace {
-
-draft::util::Stats stats_;
 
 sig_atomic_t done_;
 
@@ -132,6 +131,15 @@ Options parseOptions(int argc, char **argv)
     return opts;
 }
 
+void updateFileStats(const std::vector<draft::util::FileInfo> &info)
+{
+    for (const auto &item : info)
+    {
+        if (S_ISREG(item.status.mode))
+            draft::util::stats().fileByteCount += item.status.size;
+    }
+}
+
 std::optional<draft::util::TransferRequest> awaitTransferRequest(draft::util::ScopedFd fd)
 {
     auto rx = draft::util::InfoReceiver{std::move(fd)};
@@ -144,11 +152,7 @@ std::optional<draft::util::TransferRequest> awaitTransferRequest(draft::util::Sc
 
     auto info = rx.info();
 
-    for (const auto &item : info.config.fileInfo)
-    {
-        if (S_ISREG(item.status.mode))
-            stats_.fileByteCount += item.status.size;
-    }
+    updateFileStats(info.config.fileInfo);
 
     return info;
 }
@@ -158,11 +162,7 @@ void sendTransferRequest(draft::util::ScopedFd fd, const std::vector<draft::util
     auto request = draft::util::generateTransferRequestMsg(info);
     draft::util::net::writeAll(fd.get(), request.data(), request.size());
 
-    for (const auto &item : info)
-    {
-        if (S_ISREG(item.status.mode))
-            stats_.fileByteCount += item.status.size;
-    }
+    updateFileStats(info);
 
     spdlog::debug("sent xfer req: {}", request.size());
 }
@@ -173,7 +173,9 @@ void dumpStats(const draft::util::Stats &stats)
         "stats:\n"
         "  file byte count:         {}\n"
         "  disk byte count:         {}\n"
+        "   (includes padding on rx side)\n"
         "  net byte count:          {}\n"
+        "   (includes padding on tx side)\n"
         "  queued block count:      {}\n"
         "  dequeued block count:    {}\n"
         , stats.fileByteCount
@@ -213,7 +215,7 @@ int recv(int argc, char **argv)
     while (!done_ && sess.runOnce())
         std::this_thread::sleep_for(100ms);
 
-    dumpStats(stats_);
+    dumpStats(stats());
 
     return 0;
 }
@@ -240,7 +242,7 @@ int send(int argc, char **argv)
     while (sess.runOnce())
         ;
 
-    dumpStats(stats_);
+    dumpStats(stats());
 
     return 0;
 }

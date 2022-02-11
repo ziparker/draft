@@ -1,5 +1,5 @@
 /**
- * @file Sender.cc
+ * @file Stats.hh
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
@@ -24,46 +24,28 @@
  * SOFTWARE.
  */
 
-#include <draft/util/Sender.hh>
-#include <draft/util/Stats.hh>
+#ifndef __DRAFT_UTIL_STATS_HH__
+#define __DRAFT_UTIL_STATS_HH__
+
+#include <atomic>
 
 namespace draft::util {
 
-Sender::Sender(ScopedFd fd, BufQueue &queue):
-    queue_(&queue),
-    fd_(std::move(fd))
+struct Stats
 {
-}
+    std::atomic_uint diskByteCount{ };
+    std::atomic_uint queuedBlockCount{ };
+    std::atomic_uint dequeuedBlockCount{ };
+    std::atomic_uint netByteCount{ };
+    std::atomic_uint fileByteCount{ };
+};
 
-bool Sender::runOnce()
+inline Stats &stats()
 {
-    using namespace std::chrono_literals;
-
-    using Clock = std::chrono::steady_clock;
-
-    while (auto desc = queue_->get(Clock::now() + 1ms))
-    {
-        ++stats().dequeuedBlockCount;
-        stats().netByteCount += write(std::move(*desc)) - sizeof(wire::ChunkHeader);
-    }
-
-    return true;
-}
-
-size_t Sender::write(BDesc desc)
-{
-    auto header = wire::ChunkHeader{ };
-    header.magic = wire::ChunkHeader::Magic;
-    header.fileOffset = desc.offset;
-    header.payloadLength = desc.len;
-    header.fileId = desc.fileId;
-
-    iovec iov[2] = {
-        {&header, sizeof(header)},
-        {desc.buf->data(), desc.len}
-    };
-
-    return writeChunk(fd_.get(), iov, 2);
+    static Stats stats{ };
+    return stats;
 }
 
 }
+
+#endif

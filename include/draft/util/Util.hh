@@ -132,15 +132,6 @@ struct SessionConfig
     std::string pathRoot{"."};
 };
 
-struct Stats
-{
-    std::atomic_uint diskByteCount{ };
-    std::atomic_uint queuedBlockCount{ };
-    std::atomic_uint dequeuedBlockCount{ };
-    std::atomic_uint netByteCount{ };
-    std::atomic_uint fileByteCount{ };
-};
-
 using BufQueue = WaitQueue<BDesc>;
 using BufferPtr = std::shared_ptr<BufferPool::Buffer>;
 using FdMap = std::unordered_map<unsigned, int>;

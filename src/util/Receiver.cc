@@ -29,6 +29,7 @@
 #include <spdlog/spdlog.h>
 
 #include <draft/util/Receiver.hh>
+#include <draft/util/Stats.hh>
 
 namespace draft::util {
 
@@ -104,7 +105,7 @@ bool Receiver::waitData()
             header_.payloadLength
         });
 
-        //++stats_.queuedBlockCount;
+        ++stats().queuedBlockCount;
 
         haveHeader_ = false;
         offset_ = 0;
@@ -164,7 +165,7 @@ bool Receiver::read()
     if (len < 0)
         throw std::system_error(errno, std::system_category(), "read");
 
-    //stats_.netByteCount += len;
+    stats().netByteCount += len;
 
     offset_ += static_cast<size_t>(len);
 
