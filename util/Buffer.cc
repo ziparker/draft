@@ -1,5 +1,5 @@
 /**
- * @file Writer.cc
+ * @file Buffer.cc
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
@@ -24,67 +24,87 @@
  * SOFTWARE.
  */
 
-#include <spdlog/spdlog.h>
+#include <cstring>
 
-#include <draft/util/Writer.hh>
+#include <draft/util/Buffer.hh>
 
 namespace draft::util {
 
-Writer::Writer(FdMap fdMap, BufQueue &queue):
-    queue_(&queue),
-    fdMap_(std::move(fdMap))
+Buffer::Buffer(std::size_t size):
+    data_(std::malloc(size)),
+    size_(size)
+{
+    if (!data_)
+        throw std::bad_alloc();
+}
+
+Buffer::Buffer(const std::vector<uint8_t> &vec):
+    Buffer(vec.data(), vec.size())
 {
 }
-    
-bool Writer::runOnce()
+
+Buffer::Buffer(const void *data, std::size_t size):
+    data_(std::malloc(size)),
+    size_(size)
 {
-    using namespace std::chrono_literals;
+    if (!data_)
+        throw std::bad_alloc();
 
-    while (auto desc = queue_->get(100ms))
+    std::memcpy(data_, data, size_);
+}
+
+Buffer &Buffer::operator=(const Buffer &o)
+{
+    if (this == &o)
+        return *this;
+
+    resize(o.size_);
+
+    std::memcpy(data_, o.data_, size_);
+
+    return *this;
+}
+
+Buffer &Buffer::operator=(Buffer &&o) noexcept
+{
+    if (this == &o)
+        return *this;
+
+    std::free(data_);
+
+    data_ = o.data_;
+    size_ = o.size_;
+    o.data_ = nullptr;
+    o.size_ = 0u;
+
+    return *this;
+}
+
+Buffer::~Buffer() noexcept
+{
+    std::free(data_);
+    data_ = nullptr;
+    size_ = 0;
+}
+
+void Buffer::resize(std::size_t size)
+{
+    auto p = std::realloc(data_, size);
+
+    if (!p)
     {
-        if (!desc->buf)
-            break;
-
-        //++stats_.dequeuedBlockCount;
-
-        //stats_.diskByteCount += write(std::move(*desc));
-        write(std::move(*desc));
+        std::free(data_);
+        size_ = 0;
+        throw std::runtime_error("Buffer: realloc failed");
     }
 
-    return true;
+    data_ = p;
+    size_ = size;
 }
 
-int Writer::getFd(unsigned id)
+std::vector<uint8_t> Buffer::vector() const
 {
-    auto iter = fdMap_.find(id);
-    if (iter == end(fdMap_))
-        return -1;
-
-    return iter->second;
-}
-
-size_t Writer::write(BDesc desc)
-{
-    const auto fd = getFd(desc.fileId);
-
-    if (fd < 0)
-    {
-        spdlog::error("no mapped fd for file id {}"
-            , desc.fileId);
-
-        return 0;
-    }
-
-    iovec iov{
-        desc.buf->data(),
-        roundBlockSize(desc.len)
-    };
-
-    spdlog::trace("write {} -> id {}"
-        , iov.iov_len
-        , desc.fileId);
-
-    return writeChunk(fd, &iov, 1, desc.offset);
+    return {uint8Data(), uint8Data() + size_};
 }
 
 }

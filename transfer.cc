@@ -24,85 +24,18 @@
  * SOFTWARE.
  */
 
+#include <getopt.h>
+#include <signal.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+
+#include <draft/util/InfoReceiver.hh>
 #include <draft/util/RxSession.hh>
 #include <draft/util/TxSession.hh>
 #include <draft/util/Util.hh>
 #include <draft/util/UtilJson.hh>
 
 #include "Cmd.hh"
-
-namespace draft::util {
-
-class InfoReceiver
-{
-public:
-    explicit InfoReceiver(ScopedFd fd):
-        srvFd_(std::move(fd))
-    {
-    }
-
-    bool runOnce()
-    {
-        if (fd_.get() < 0)
-        {
-            fd_ = util::net::accept(srvFd_.get());
-
-            if (fd_.get() < 0)
-                return false;
-
-            spdlog::info("accepted service connection @ fd {}", fd_.get());
-        }
-
-        if (buf_.size() - offset_ < 4096)
-            buf_.resize(buf_.size() + 4096);
-
-        auto data = buf_.data() + offset_;
-        auto sz = buf_.size() - offset_;
-
-        auto len = ::recv(fd_.get(), data, sz, 0);
-        spdlog::debug("rx'd {} for info", len);
-
-        if (len < 0)
-            throw std::system_error(errno, std::system_category(), "recv");
-
-        offset_ += static_cast<size_t>(len);
-
-        if (!len)
-        {
-            buf_.resize(offset_);
-            haveInfo_ = true;
-            return true;
-        }
-
-        return false;
-    }
-
-    TransferRequest info() const
-    {
-        auto header = reinterpret_cast<const wire::ChunkHeader *>(buf_.data());
-
-        if (header->magic != wire::ChunkHeader::Magic)
-            throw std::runtime_error("invalid chunk magic");
-
-        if (sizeof(*header) + header->payloadLength > buf_.size())
-        {
-            throw std::runtime_error(
-                "invalid payload length: " + std::to_string(header->payloadLength));
-        }
-
-        return deserializeTransferRequest(
-            Buffer{buf_.data() + sizeof(*header), header->payloadLength});
-    }
-
-private:
-    std::vector<uint8_t> buf_{ };
-    size_t offset_{ };
-    ScopedFd fd_{ };
-    ScopedFd srvFd_{ };
-    bool haveInfo_{ };
-};
-
-}
 
 namespace {
 

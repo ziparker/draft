@@ -24,6 +24,10 @@
  * SOFTWARE.
  */
 
+#include <iterator>
+
+#include <sys/stat.h>
+
 #include <draft/util/Reader.hh>
 #include <draft/util/Sender.hh>
 #include <draft/util/ThreadExecutor.hh>

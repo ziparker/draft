@@ -24,6 +24,10 @@
  * SOFTWARE.
  */
 
+#include <poll.h>
+
+#include <spdlog/spdlog.h>
+
 #include <draft/util/Receiver.hh>
 
 namespace draft::util {

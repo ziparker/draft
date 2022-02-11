@@ -24,6 +24,8 @@
  * SOFTWARE.
  */
 
+#include <spdlog/spdlog.h>
+
 #include <draft/util/Reader.hh>
 
 namespace draft::util {

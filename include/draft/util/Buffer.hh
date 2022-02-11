@@ -27,7 +27,9 @@
 #ifndef __DRAFT_UTIL_BUFFER_HH__
 #define __DRAFT_UTIL_BUFFER_HH__
 
-#include <cstddef>
+#include <cstdint>
+#include <stdexcept>
+#include <vector>
 
 namespace draft::util {
 
@@ -36,99 +38,35 @@ class Buffer
 public:
     Buffer() = default;
 
-    explicit Buffer(std::size_t size):
-        data_(std::malloc(size)),
-        size_(size)
-    {
-        if (!data_)
-            throw std::bad_alloc();
-    }
-
-    Buffer(const std::vector<uint8_t> &vec):
-        Buffer(vec.data(), vec.size())
-    {
-    }
-
-    explicit Buffer(const void *data, std::size_t size):
-        data_(std::malloc(size)),
-        size_(size)
-    {
-        if (!data_)
-            throw std::bad_alloc();
-
-        std::memcpy(data_, data, size_);
-    }
+    explicit Buffer(std::size_t size);
+    Buffer(const std::vector<uint8_t> &vec);
+    explicit Buffer(const void *data, std::size_t size);
 
     Buffer(const Buffer &o)
     {
         *this = o;
     }
 
-    Buffer &operator=(const Buffer &o)
-    {
-        if (this == &o)
-            return *this;
+    Buffer &operator=(const Buffer &o);
 
-        resize(o.size_);
-
-        std::memcpy(data_, o.data_, size_);
-
-        return *this;
-    }
-
-    Buffer(Buffer &&o)
+    Buffer(Buffer &&o) noexcept
     {
         *this = o;
     }
 
-    Buffer &operator=(Buffer &&o)
-    {
-        if (this == &o)
-            return *this;
+    Buffer &operator=(Buffer &&o) noexcept;
 
-        std::free(data_);
+    ~Buffer() noexcept;
 
-        data_ = o.data_;
-        size_ = o.size_;
-        o.data_ = nullptr;
-        o.size_ = 0u;
-
-        return *this;
-    }
-
-    ~Buffer()
-    {
-        std::free(data_);
-        data_ = nullptr;
-        size_ = 0;
-    }
-
-    void resize(std::size_t size)
-    {
-        auto p = std::realloc(data_, size);
-
-        if (!p)
-        {
-            std::free(data_);
-            size_ = 0;
-            throw std::runtime_error("Buffer: realloc failed");
-        }
-
-        data_ = p;
-        size_ = size;
-    }
-
-    std::vector<uint8_t> vector() const
-    {
-        return {uint8Data(), uint8Data() + size_};
-    }
+    void resize(std::size_t size);
+    std::size_t size() const noexcept { return size_; }
 
     void *data() noexcept { return data_; }
     const void *data() const noexcept { return data_; }
     uint8_t *uint8Data() noexcept { return reinterpret_cast<uint8_t *>(data_); }
     const uint8_t *uint8Data() const noexcept { return reinterpret_cast<uint8_t *>(data_); }
 
-    std::size_t size() const noexcept { return size_; }
+    std::vector<uint8_t> vector() const;
 
 private:
     void *data_{ };

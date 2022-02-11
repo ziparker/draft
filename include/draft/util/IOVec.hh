@@ -28,6 +28,7 @@
 #define __DRAFT_UTIL_IOVEC_HH__
 
 #include <algorithm>
+#include <cstring>
 #include <memory>
 
 #include <sys/uio.h>

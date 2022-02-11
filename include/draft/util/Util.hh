@@ -26,22 +26,21 @@
 #ifndef __DRAFT_UTIL_HH__
 #define __DRAFT_UTIL_HH__
 
+#include <algorithm>
 #include <atomic>
-#include <chrono>
+#include <cstring>
 #include <filesystem>
-#include <iterator>
-#include <list>
-#include <ranges>
-#include <thread>
+#include <filesystem>
+#include <memory>
+#include <numeric>
+#include <string>
+#include <system_error>
+#include <unordered_map>
+#include <utility>
 
-#include <getopt.h>
-#include <libgen.h>
-#include <poll.h>
-#include <signal.h>
-#include <sys/socket.h>
-
-#include <spdlog/spdlog.h>
-#include <spdlog/cfg/env.h>
+#include <fcntl.h>
+#include <sys/uio.h>
+#include <unistd.h>
 
 #include "Buffer.hh"
 #include "BufferPool.hh"
@@ -50,38 +49,6 @@
 #include "ScopedFd.hh"
 #include "ScopedMMap.hh"
 #include "WaitQueue.hh"
-
-//--
-
-#include <algorithm>
-#include <chrono>
-#include <condition_variable>
-#include <cstdlib>
-#include <cstring>
-#include <deque>
-#include <filesystem>
-#include <future>
-#include <memory>
-#include <numeric>
-#include <optional>
-#include <stdexcept>
-#include <string>
-#include <system_error>
-#include <thread>
-#include <unordered_map>
-#include <utility>
-
-#include <set>
-
-#include <fcntl.h>
-#include <sys/epoll.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/uio.h>
-#include <unistd.h>
-
-#include <spdlog/spdlog.h>
-#include <spdlog/fmt/bin_to_hex.h>
 
 namespace draft::util {
 

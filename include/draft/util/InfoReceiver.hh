@@ -1,5 +1,5 @@
 /**
- * @file Writer.cc
+ * @file InfoReceiver.hh
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
@@ -24,67 +24,32 @@
  * SOFTWARE.
  */
 
-#include <spdlog/spdlog.h>
+#ifndef __DRAFT_UTIL_INFO_RECEIVER_HH__
+#define __DRAFT_UTIL_INFO_RECEIVER_HH__
 
-#include <draft/util/Writer.hh>
+#include <vector>
+
+#include "Util.hh"
 
 namespace draft::util {
 
-Writer::Writer(FdMap fdMap, BufQueue &queue):
-    queue_(&queue),
-    fdMap_(std::move(fdMap))
+class InfoReceiver
 {
-}
-    
-bool Writer::runOnce()
-{
-    using namespace std::chrono_literals;
+public:
+    explicit InfoReceiver(ScopedFd fd);
 
-    while (auto desc = queue_->get(100ms))
-    {
-        if (!desc->buf)
-            break;
+    bool runOnce();
 
-        //++stats_.dequeuedBlockCount;
+    TransferRequest info() const;
 
-        //stats_.diskByteCount += write(std::move(*desc));
-        write(std::move(*desc));
-    }
-
-    return true;
-}
-
-int Writer::getFd(unsigned id)
-{
-    auto iter = fdMap_.find(id);
-    if (iter == end(fdMap_))
-        return -1;
-
-    return iter->second;
-}
-
-size_t Writer::write(BDesc desc)
-{
-    const auto fd = getFd(desc.fileId);
-
-    if (fd < 0)
-    {
-        spdlog::error("no mapped fd for file id {}"
-            , desc.fileId);
-
-        return 0;
-    }
-
-    iovec iov{
-        desc.buf->data(),
-        roundBlockSize(desc.len)
-    };
-
-    spdlog::trace("write {} -> id {}"
-        , iov.iov_len
-        , desc.fileId);
-
-    return writeChunk(fd, &iov, 1, desc.offset);
-}
+private:
+    std::vector<uint8_t> buf_{ };
+    size_t offset_{ };
+    ScopedFd fd_{ };
+    ScopedFd srvFd_{ };
+    bool haveInfo_{ };
+};
 
 }
+
+#endif

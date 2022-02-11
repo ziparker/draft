@@ -35,6 +35,7 @@
 #include <poll.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 
 #include <linux/if_tun.h>
 

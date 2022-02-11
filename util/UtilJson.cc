@@ -24,6 +24,8 @@
  * SOFTWARE.
  */
 
+#include <spdlog/spdlog.h>
+
 #include <draft/util/UtilJson.hh>
 
 namespace draft::util {
