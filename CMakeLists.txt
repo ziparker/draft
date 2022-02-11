@@ -84,33 +84,33 @@ find_path(cufile_INCLUDE_DIRS cufile.h)
 find_path(nvcomp_INCLUDE_DIRS nvcomp.hpp)
 
 list(APPEND DRAFTUTIL_SRC
-    util/Buffer.cc
-    util/BufferPool.cc
-    util/InfoReceiver.cc
-    util/Reader.cc
-    util/Receiver.cc
-    util/RxSession.cc
-    util/ScopedMMap.cc
-    util/Sender.cc
-    util/TaskPool.cc
-    util/ThreadExecutor.cc
-    util/TxSession.cc
-    util/Util.cc
-    util/UtilJson.cc
-    util/Writer.cc)
+    src/util/Buffer.cc
+    src/util/BufferPool.cc
+    src/util/InfoReceiver.cc
+    src/util/Reader.cc
+    src/util/Receiver.cc
+    src/util/RxSession.cc
+    src/util/ScopedMMap.cc
+    src/util/Sender.cc
+    src/util/TaskPool.cc
+    src/util/ThreadExecutor.cc
+    src/util/TxSession.cc
+    src/util/Util.cc
+    src/util/UtilJson.cc
+    src/util/Writer.cc)
 
 list(APPEND DRAFTCLI_SRC
-    cli/draft.cc
-    cli/transfer.cc)
+    src/cli/draft.cc
+    src/cli/transfer.cc)
 
 if (blosc2_LIBRARY AND blosc2_INCLUDE_DIRS)
-    list(APPEND DRAFTCLI_SRC cli/compress.cc)
+    list(APPEND DRAFTCLI_SRC src/cli/compress.cc)
 endif ()
 
 if (nvcomp_LIBRARY AND cufile_LIBRARY AND
     nvcomp_INCLUDE_DIRS AND cufile_INCLUDE_DIRS)
     message(STATUS "draft: including nvidia compression subcommand.")
-    list(APPEND DRAFTCLI_SRC cli/nvcompress.cc)
+    list(APPEND DRAFTCLI_SRC src/cli/nvcompress.cc)
 endif ()
 
 add_library(draftutil ${DRAFTUTIL_SRC})
