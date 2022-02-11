@@ -43,6 +43,8 @@
 
 #include <draft/util/Util.hh>
 
+namespace fs = std::filesystem;
+
 namespace draft::util {
 
 namespace {
@@ -135,12 +137,107 @@ auto tcpAddrInfo(const std::string &host, uint16_t port)
     return std::unique_ptr<struct addrinfo, AddrInfoDeleter>(info);
 }
 
+} // namespace
+
+size_t readChunk(int fd, void *data, size_t dlen, size_t fileOffset)
+{
+    auto buf = reinterpret_cast<uint8_t *>(data);
+
+    for (size_t offset = 0; offset < dlen; )
+    {
+        auto len = ::pread(fd, buf + offset, dlen - offset, static_cast<off_t>(fileOffset + offset));
+
+        if (len < 0)
+            throw std::system_error(errno, std::system_category(), "pread");
+
+        if (!len)
+            return offset;
+
+        offset += static_cast<size_t>(len);
+    }
+
+    return dlen;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// Agent Utils
+size_t writeChunk(int fd, iovec *iov, size_t iovCount)
+{
+    auto written = size_t{ };
 
-namespace fs = std::filesystem;
+    while (iovCount)
+    {
+        const auto len = ::writev(fd, iov, iovCount);
+
+        if (len < 0)
+            throw std::system_error(errno, std::system_category(), "write");
+
+        if (!len)
+            break;
+
+        auto ulen = static_cast<size_t>(len);
+
+        written += ulen;
+
+        while (ulen && iovCount)
+        {
+            const auto adv = std::min(iov->iov_len, ulen);
+            iov->iov_base = reinterpret_cast<uint8_t *>(iov->iov_base) + adv;
+            iov->iov_len -= adv;
+
+            ulen -= adv;
+
+            if (!iov->iov_len)
+            {
+                ++iov;
+                --iovCount;
+            }
+        }
+    }
+
+    return written;
+}
+
+size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset)
+{
+    auto written = size_t{ };
+
+    while (iovCount)
+    {
+        if (offset > static_cast<size_t>(std::numeric_limits<off_t>::max()))
+        {
+            throw std::range_error("writeChunk offset is out of off_t range.");
+        }
+
+        const auto len = ::pwritev(fd, iov, iovCount, static_cast<off_t>(offset));
+
+        if (len < 0)
+            throw std::system_error(errno, std::system_category(), "write");
+
+        if (!len)
+            break;
+
+        auto ulen = static_cast<size_t>(len);
+
+        offset += ulen;
+        written += ulen;
+
+        while (ulen && iovCount)
+        {
+            const auto adv = std::min(iov->iov_len, ulen);
+            iov->iov_base = reinterpret_cast<uint8_t *>(iov->iov_base) + adv;
+            iov->iov_len -= adv;
+
+            ulen -= adv;
+
+            if (!iov->iov_len)
+            {
+                ++iov;
+                --iovCount;
+            }
+        }
+    }
+
+    return written;
+}
 
 namespace {
 

@@ -52,119 +52,12 @@
 
 namespace draft::util {
 
-constexpr size_t BlockSize = 4096u;
+constexpr auto BlockSize = size_t{4096};
+constexpr auto BufSize = size_t{1u << 22};
 
 constexpr size_t roundBlockSize(size_t len) noexcept
 {
-    return (len + BlockSize - 1) & ~size_t{BlockSize-1};
-}
-
-inline size_t computeSegmentSize(size_t fileLen, size_t linkCount)
-{
-    return roundBlockSize(fileLen / linkCount);
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// IO
-
-inline size_t readChunk(int fd, void *data, size_t dlen, size_t fileOffset)
-{
-    auto buf = reinterpret_cast<uint8_t *>(data);
-
-    for (size_t offset = 0; offset < dlen; )
-    {
-        auto len = ::pread(fd, buf + offset, dlen - offset, static_cast<off_t>(fileOffset + offset));
-
-        if (len < 0)
-            throw std::system_error(errno, std::system_category(), "pread");
-
-        if (!len)
-            return offset;
-
-        offset += static_cast<size_t>(len);
-    }
-
-    return dlen;
-}
-
-inline size_t writeChunk(int fd, iovec *iov, size_t iovCount)
-{
-    auto written = size_t{ };
-
-    while (iovCount)
-    {
-        const auto len = ::writev(fd, iov, iovCount);
-
-        if (len < 0)
-            throw std::system_error(errno, std::system_category(), "write");
-
-        if (!len)
-            break;
-
-        auto ulen = static_cast<size_t>(len);
-
-        written += ulen;
-
-        while (ulen && iovCount)
-        {
-            const auto adv = std::min(iov->iov_len, ulen);
-            iov->iov_base = reinterpret_cast<uint8_t *>(iov->iov_base) + adv;
-            iov->iov_len -= adv;
-
-            ulen -= adv;
-
-            if (!iov->iov_len)
-            {
-                ++iov;
-                --iovCount;
-            }
-        }
-    }
-
-    return written;
-}
-
-inline size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset)
-{
-    auto written = size_t{ };
-
-    while (iovCount)
-    {
-        if (offset > static_cast<size_t>(std::numeric_limits<off_t>::max()))
-        {
-            throw std::range_error("writeChunk offset is out of off_t range.");
-        }
-
-        const auto len = ::pwritev(fd, iov, iovCount, static_cast<off_t>(offset));
-
-        if (len < 0)
-            throw std::system_error(errno, std::system_category(), "write");
-
-        if (!len)
-            break;
-
-        auto ulen = static_cast<size_t>(len);
-
-        offset += ulen;
-        written += ulen;
-
-        while (ulen && iovCount)
-        {
-            const auto adv = std::min(iov->iov_len, ulen);
-            iov->iov_base = reinterpret_cast<uint8_t *>(iov->iov_base) + adv;
-            iov->iov_len -= adv;
-
-            ulen -= adv;
-
-            if (!iov->iov_len)
-            {
-                ++iov;
-                --iovCount;
-            }
-        }
-    }
-
-    return written;
+    return (len + BlockSize - 1) & ~size_t{BlockSize - 1};
 }
 
 struct MessageBuffer
@@ -174,9 +67,6 @@ struct MessageBuffer
     size_t payloadLength{ };
     unsigned fileId{ };
 };
-
-////////////////////////////////////////////////////////////////////////////////
-// Agent
 
 struct NetworkTarget
 {
@@ -216,8 +106,6 @@ struct TransferRequest
     draft::util::FileAgentConfig config;
 };
 
-// --
-
 struct BDesc
 {
     std::shared_ptr<BufferPool::Buffer> buf{ };
@@ -253,11 +141,13 @@ struct Stats
     std::atomic_uint fileByteCount{ };
 };
 
-constexpr auto BufSize = size_t{1u << 22};
-
 using BufQueue = WaitQueue<BDesc>;
 using BufferPtr = std::shared_ptr<BufferPool::Buffer>;
 using FdMap = std::unordered_map<unsigned, int>;
+
+size_t readChunk(int fd, void *data, size_t dlen, size_t fileOffset);
+size_t writeChunk(int fd, iovec *iov, size_t iovCount);
+size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset);
 
 std::vector<FileInfo> getFileInfo(const std::string &path);
 
@@ -273,13 +163,9 @@ std::filesystem::path rootedPath(std::filesystem::path root, std::string path, s
 namespace net {
 
 ScopedFd bindTun(const std::string &name);
-
 ScopedFd bindTcp(const std::string &host, uint16_t port, unsigned backlog = 1);
-
 ScopedFd connectTcp(const std::string &host, uint16_t port, int tmoMs = 0);
-
 ScopedFd bindUdp(const std::string &host, uint16_t port);
-
 ScopedFd connectUdp(const std::string &host, uint16_t port);
 
 ScopedFd accept(int fd);
@@ -289,11 +175,8 @@ void setNonBlocking(int fd, bool on);
 int udpSendQueueSize(int fd);
 
 void writeAll(int fd, const void *data, size_t len);
-
 void writeAll(int fd, const struct iovec *iovs, size_t iovlen);
-
 void readAll(int fd, const void *data, size_t len);
-
 void readAll(int fd, const struct iovec *iovs, size_t iovlen);
 
 std::string peerName(int fd);

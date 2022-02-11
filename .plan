@@ -103,3 +103,4 @@ session
     - [ ] progress
         - session?
     - [ ] tui
+    - [ ] configurable buf size, r/w/tx/rx thd counts
