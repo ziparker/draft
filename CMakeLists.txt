@@ -84,9 +84,11 @@ find_path(cufile_INCLUDE_DIRS cufile.h)
 find_path(nvcomp_INCLUDE_DIRS nvcomp.hpp)
 
 list(APPEND DRAFTUTIL_SRC
+    util/BufferPool.cc
     util/Reader.cc
     util/Receiver.cc
     util/RxSession.cc
+    util/ScopedMMap.cc
     util/Sender.cc
     util/TaskPool.cc
     util/ThreadExecutor.cc
