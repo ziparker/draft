@@ -99,14 +99,18 @@ list(APPEND DRAFTUTIL_SRC
     util/UtilJson.cc
     util/Writer.cc)
 
+list(APPEND DRAFTCLI_SRC
+    cli/draft.cc
+    cli/transfer.cc)
+
 if (blosc2_LIBRARY AND blosc2_INCLUDE_DIRS)
-    list(APPEND DRAFTUTIL_SRC compress.cc)
+    list(APPEND DRAFTCLI_SRC cli/compress.cc)
 endif ()
 
 if (nvcomp_LIBRARY AND cufile_LIBRARY AND
     nvcomp_INCLUDE_DIRS AND cufile_INCLUDE_DIRS)
     message(STATUS "draft: including nvidia compression subcommand.")
-    list(APPEND DRAFTUTIL_SRC nvcompress.cc)
+    list(APPEND DRAFTCLI_SRC cli/nvcompress.cc)
 endif ()
 
 add_library(draftutil ${DRAFTUTIL_SRC})
@@ -131,7 +135,7 @@ if (nvcomp_LIBRARY)
     target_include_directories(draftutil PRIVATE ${nvcomp_INCLUDE_DIRS} ${cufile_INCLUDE_DIRS})
 endif ()
 
-add_executable(draft draft.cc transfer.cc)
+add_executable(draft ${DRAFTCLI_SRC})
 target_link_libraries(draft PRIVATE draftutil spdlog::spdlog)
 
 add_executable(prep prep.cc)

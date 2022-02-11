@@ -41,7 +41,6 @@ extern "C" {
 #include <spdlog/cfg/env.h>
 
 #include <draft/util/Util.hh>
-
 #include "Cmd.hh"
 
 namespace {
