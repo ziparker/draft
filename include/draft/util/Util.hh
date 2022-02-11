@@ -26,6 +26,25 @@
 #ifndef __DRAFT_UTIL_HH__
 #define __DRAFT_UTIL_HH__
 
+#include <atomic>
+#include <chrono>
+#include <filesystem>
+#include <iterator>
+#include <list>
+#include <ranges>
+#include <thread>
+
+#include <getopt.h>
+#include <libgen.h>
+#include <poll.h>
+#include <signal.h>
+#include <sys/socket.h>
+
+#include <spdlog/spdlog.h>
+#include <spdlog/cfg/env.h>
+
+//--
+
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
@@ -65,7 +84,7 @@ constexpr size_t BlockSize = 4096u;
 constexpr size_t roundBlockSize(size_t len) noexcept
 {
     return (len + BlockSize - 1) & ~size_t{BlockSize-1};
-};
+}
 
 inline size_t computeSegmentSize(size_t fileLen, size_t linkCount)
 {
@@ -1405,6 +1424,49 @@ private:
     bool done_{ };
 };
 
+// --
+
+struct BDesc
+{
+    std::shared_ptr<BufferPool::Buffer> buf{ };
+    unsigned fileId{ };
+    size_t offset{ };
+    size_t len{ };
+};
+
+struct Segment
+{
+    size_t offset{ };
+    size_t len{ };
+};
+
+struct TransferInfo
+{
+    std::unordered_map<unsigned, ScopedFd> fileMap;
+};
+
+struct SessionConfig
+{
+    std::vector<NetworkTarget> targets;
+    NetworkTarget service;
+    std::string pathRoot{"."};
+};
+
+struct Stats
+{
+    std::atomic_uint diskByteCount{ };
+    std::atomic_uint queuedBlockCount{ };
+    std::atomic_uint dequeuedBlockCount{ };
+    std::atomic_uint netByteCount{ };
+    std::atomic_uint fileByteCount{ };
+};
+
+constexpr auto BufSize = size_t{1u << 22};
+
+using BufQueue = WaitQueue<BDesc>;
+using BufferPtr = std::shared_ptr<BufferPool::Buffer>;
+using FdMap = std::unordered_map<unsigned, int>;
+
 std::vector<FileInfo> getFileInfo(const std::string &path);
 
 draft::util::NetworkTarget parseTarget(const std::string &str);
@@ -1445,6 +1507,9 @@ void readAll(int fd, const struct iovec *iovs, size_t iovlen);
 std::string peerName(int fd);
 
 }
+
+std::vector<ScopedFd> connectNetworkTargets(const std::vector<NetworkTarget> &targets);
+std::vector<ScopedFd> bindNetworkTargets(const std::vector<NetworkTarget> &targets);
 
 }
 

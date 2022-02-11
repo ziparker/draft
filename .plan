@@ -94,3 +94,12 @@ session
     - all subbufs freed, megabuf returns to pool
 - rx to open files on demand instead of holding all descs open for duration of xfer
 - rx to track completion for each file, truncate at end & close
+
+- usability
+    - [ ] multiple rx (persistent receiver)
+    - [ ] bind to i/f
+    - [ ] bind to ANY
+    - [ ] stats
+    - [ ] progress
+        - session?
+    - [ ] tui

@@ -39,8 +39,8 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/cfg/env.h>
 
+#include <draft/util/UtilJson.hh>
 #include "Cmd.hh"
-#include "UtilJson.hh"
 
 namespace {
 
@@ -62,7 +62,7 @@ int dispatchSubcommand(int argc, char **argv)
     };
 
     const auto usage = [argv, &subProgs] {
-            std::cout << fmt::format("usage: {} <subcmd> [OPTS]\n"
+            std::cout << fmt::format("usage: {} <subcmd> [options...]\n"
                 , ::basename(argv[0]));
             std::cout << "  subcmds:\n";
             for (const auto &[name, _] : subProgs)

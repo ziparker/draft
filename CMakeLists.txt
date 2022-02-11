@@ -84,7 +84,16 @@ find_path(cufile_INCLUDE_DIRS cufile.h)
 find_path(nvcomp_INCLUDE_DIRS nvcomp.hpp)
 
 list(APPEND DRAFTUTIL_SRC
-    recv.cc send.cc Util.cc UtilJson.cc)
+    util/Reader.cc
+    util/Receiver.cc
+    util/RxSession.cc
+    util/Sender.cc
+    util/TaskPool.cc
+    util/ThreadExecutor.cc
+    util/TxSession.cc
+    util/Util.cc
+    util/UtilJson.cc
+    util/Writer.cc)
 
 if (blosc2_LIBRARY AND blosc2_INCLUDE_DIRS)
     list(APPEND DRAFTUTIL_SRC compress.cc)
@@ -97,6 +106,9 @@ if (nvcomp_LIBRARY AND cufile_LIBRARY AND
 endif ()
 
 add_library(draftutil ${DRAFTUTIL_SRC})
+target_include_directories(draftutil PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
 target_link_libraries(draftutil
     PRIVATE spdlog::spdlog
     PUBLIC nlohmann_json::nlohmann_json)
@@ -115,14 +127,11 @@ if (nvcomp_LIBRARY)
     target_include_directories(draftutil PRIVATE ${nvcomp_INCLUDE_DIRS} ${cufile_INCLUDE_DIRS})
 endif ()
 
-add_executable(draft draft.cc)
+add_executable(draft draft.cc transfer.cc)
 target_link_libraries(draft PRIVATE draftutil spdlog::spdlog)
 
 add_executable(prep prep.cc)
 target_link_libraries(prep PRIVATE draftutil spdlog::spdlog)
-
-add_executable(xx xx.cc)
-target_link_libraries(xx PRIVATE draftutil spdlog::spdlog)
 
 if (DRAFT_ENABLE_TESTS)
     find_package(GTest REQUIRED)

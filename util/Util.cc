@@ -41,7 +41,7 @@
 
 #include <spdlog/spdlog.h>
 
-#include "Util.hh"
+#include <draft/util/Util.hh>
 
 namespace draft::util {
 
@@ -732,5 +732,28 @@ std::string peerName(int fd)
 }
 
 }
+
+std::vector<ScopedFd> connectNetworkTargets(const std::vector<NetworkTarget> &targets)
+{
+    const auto view = std::views::transform(
+        targets,
+        [](const NetworkTarget &t) {
+            return net::connectTcp(t.ip, t.port);
+        });
+
+    return {begin(view), end(view)};
+}
+
+std::vector<ScopedFd> bindNetworkTargets(const std::vector<NetworkTarget> &targets)
+{
+    const auto view = std::views::transform(
+        targets,
+        [](const NetworkTarget &t) {
+            return net::bindTcp(t.ip, t.port);
+        });
+
+    return {begin(view), end(view)};
+}
+
 
 }
