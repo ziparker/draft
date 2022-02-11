@@ -1,56 +1,6 @@
 durable, resumable, asynchronous file transfer
 ==============================================
 
-frame:
-    magic | version
-    len
-    cbor payload
-
-start_req
-    file tree:
-        list of leaf dirs/perms
-        list of files/perms
-
-start_rep
-    status (ok/error)
-    session id
-    file-id mapping
-
-[idempotent]
-chunk_req
-    session id
-    file id
-    offset
-    len
-    [hash]
-
-chunk_rep
-    session id
-    file id
-    offset
-    len
-
-ping
-    session id
-
-pong
-    session id
-
-status_req
-    session id
-
-status_rep
-    session id
-    session start time
-    session end time
-    pct complete
-
---
-- links operations: cqe wait hangs once we need > 7 file splice operations.
-
---
-xx
-
 session
     - tx/rx multiple files
     - open net endpoints
@@ -94,6 +44,8 @@ session
     - all subbufs freed, megabuf returns to pool
 - rx to open files on demand instead of holding all descs open for duration of xfer
 - rx to track completion for each file, truncate at end & close
+
+- spdk/dpdk
 
 - usability
     - [ ] multiple rx (persistent receiver)

@@ -27,6 +27,8 @@
 #ifndef __DRAFT_UTIL_RECEIVER_HH__
 #define __DRAFT_UTIL_RECEIVER_HH__
 
+#include <stop_token>
+
 #include "Util.hh"
 
 namespace draft::util {
@@ -38,11 +40,11 @@ public:
 
     Receiver(ScopedFd fd, BufQueue &queue);
 
-    bool runOnce();
+    bool runOnce(std::stop_token stopToken);
 
 private:
     int waitConnect();
-    bool waitData();
+    bool waitData(std::stop_token stopToken);
 
     int readHeader();
     bool read();

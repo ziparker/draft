@@ -27,6 +27,8 @@
 #ifndef __DRAFT_UTIL_WRITER_HH__
 #define __DRAFT_UTIL_WRITER_HH__
 
+#include <stop_token>
+
 #include "Util.hh"
 
 namespace draft::util {
@@ -38,7 +40,7 @@ public:
 
     Writer(FdMap fdMap, BufQueue &queue);
 
-    bool runOnce();
+    bool runOnce(std::stop_token stopToken);
 
 private:
     int getFd(unsigned id);

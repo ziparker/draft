@@ -35,7 +35,7 @@ Sender::Sender(ScopedFd fd, BufQueue &queue):
 {
 }
 
-bool Sender::runOnce()
+bool Sender::runOnce(std::stop_token stopToken)
 {
     using namespace std::chrono_literals;
 
@@ -45,6 +45,9 @@ bool Sender::runOnce()
     {
         ++stats().dequeuedBlockCount;
         stats().netByteCount += write(std::move(*desc)) - sizeof(wire::ChunkHeader);
+
+        if (stopToken.stop_requested())
+            break;
     }
 
     return true;

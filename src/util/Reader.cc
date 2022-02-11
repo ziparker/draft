@@ -40,12 +40,11 @@ Reader::Reader(const std::shared_ptr<ScopedFd> &fd, unsigned fileId, Segment seg
 {
 }
 
-// TODO: take stop token through executor/task pool.
-int Reader::operator()()
+int Reader::operator()(std::stop_token stopToken)
 {
-    // TODO: stop token
-    //while (!done_)
-    while (true)
+    using namespace std::chrono_literals;
+
+    while (!stopToken.stop_requested())
     {
         auto buf = std::make_shared<Buffer>(pool_->get());
 
@@ -60,11 +59,10 @@ int Reader::operator()()
         //
         // if the queue is pushing back, we don't want to stack-up more
         // work.
-        //
-        // TODO: test stop token.
-        //while (!done_ && !queue_->put({buf, fileId_, segment_.offset, len}))
-        while (!queue_->put({buf, fileId_, segment_.offset, len}))
-            ;
+        while (!stopToken.stop_requested() &&
+            !queue_->put({buf, fileId_, segment_.offset, len}, 100ms))
+        {
+        }
 
         ++stats().queuedBlockCount;
 

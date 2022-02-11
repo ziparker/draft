@@ -100,13 +100,13 @@ private:
         {
             thd_ = std::jthread(
                 [this](std::stop_token token, T t_) mutable {
-                    while (!token.stop_requested() && t_.runOnce())
+                    while (!token.stop_requested() && t_.runOnce(token))
                         ;
 
                     if (token.stop_requested() && (options_ & Options::DoFinalize))
                     {
                         spdlog::debug("thd runnable finalizing.");
-                        t_.runOnce();
+                        t_.runOnce(token);
                     }
 
                     finished_ = true;

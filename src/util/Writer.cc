@@ -37,7 +37,7 @@ Writer::Writer(FdMap fdMap, BufQueue &queue):
 {
 }
     
-bool Writer::runOnce()
+bool Writer::runOnce(std::stop_token stopToken)
 {
     using namespace std::chrono_literals;
 
@@ -49,6 +49,9 @@ bool Writer::runOnce()
         ++stats().dequeuedBlockCount;
 
         stats().diskByteCount += write(std::move(*desc));
+
+        if (stopToken.stop_requested())
+            break;
     }
 
     return true;

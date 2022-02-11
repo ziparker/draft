@@ -65,6 +65,13 @@ public:
         return doPut(std::move(t), &deadline) == Status::OK;
     }
 
+    template <typename Rep, typename Period>
+    bool put(Value t, const std::chrono::duration<Rep, Period> &tmo)
+    {
+        const auto deadline = Clock::now() + tmo;
+        return doPut(std::move(t), &deadline) == Status::OK;
+    }
+
     ReturnType get()
     {
         return doGet(nullptr);

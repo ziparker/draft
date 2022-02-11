@@ -64,16 +64,15 @@ void TaskPool::resize(size_t newSize)
     threads_.resize(newSize);
 
     for (auto i = prevSize; i < newSize; ++i)
-        threads_[i] = std::jthread([this]{ stealWork(); });
+        threads_[i] = std::jthread([this](std::stop_token token){ stealWork(token); });
 }
 
-// TODO: forward stop token.
-void TaskPool::stealWork()
+void TaskPool::stealWork(std::stop_token token)
 {
-    while (!q_.done())
+    while (!token.stop_requested() && !q_.done())
     {
         if (auto work = q_.get(); work && *work)
-            (*work)();
+            (*work)(token);
     }
 }
 

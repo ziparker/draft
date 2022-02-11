@@ -24,6 +24,8 @@
  * SOFTWARE.
  */
 
+#include <cstdlib>
+
 #include <getopt.h>
 #include <signal.h>
 #include <sys/socket.h>
@@ -42,15 +44,21 @@ namespace {
 
 sig_atomic_t done_;
 
-void handleSig(int)
+void handleSigint(int)
 {
+    if (done_)
+    {
+        fprintf(stderr, "draft send: interrupted twice - ending transfer NOW\n");
+        std::exit(2);
+    }
+
     done_ = 1;
 }
 
 void installSigHandler()
 {
     struct sigaction action{ };
-    action.sa_handler = handleSig;
+    action.sa_handler = handleSigint;
     sigaction(SIGINT, &action, nullptr);
 }
 
@@ -215,6 +223,8 @@ int recv(int argc, char **argv)
     while (!done_ && sess.runOnce())
         std::this_thread::sleep_for(100ms);
 
+    spdlog::info("ending rx session.");
+
     dumpStats(stats());
 
     return 0;
@@ -237,10 +247,13 @@ int send(int argc, char **argv)
     auto fd = net::connectTcp(opts.session.service.ip, opts.session.service.port);
     sendTransferRequest(std::move(fd), fileInfo);
 
+    spdlog::info("starting tx session.");
     sess.start(path);
 
-    while (sess.runOnce())
+    while (!done_ && sess.runOnce())
         ;
+
+    spdlog::info("ending tx session.");
 
     dumpStats(stats());
 

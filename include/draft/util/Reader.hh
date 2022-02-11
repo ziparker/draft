@@ -28,6 +28,7 @@
 #define __DRAFT_UTIL_READER_HH__
 
 #include <memory>
+#include <stop_token>
 
 #include "Util.hh"
 
@@ -40,8 +41,7 @@ public:
 
     Reader(const std::shared_ptr<ScopedFd> &fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue &queue);
 
-    // TODO: take stop token through executor/task pool.
-    int operator()();
+    int operator()(std::stop_token stopToken);
 
 private:
     size_t read(Buffer &buf);

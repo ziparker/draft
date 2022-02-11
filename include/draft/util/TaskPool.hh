@@ -57,12 +57,14 @@ public:
     void resize(size_t newSize);
 
     template <typename Function, typename ...Args>
+        requires std::invocable<Function, std::stop_token, Args...>
     [[nodiscard]]
     auto launch(Function &&f, Args &&...args)
     {
         using result_type =
             std::invoke_result_t<
                 std::decay_t<Function>,
+                std::stop_token,
                 std::decay_t<Args>...>;
 
         auto promise = std::make_shared<std::promise<result_type>>();
@@ -71,9 +73,9 @@ public:
         auto ok = q_.put([
             f = std::move(f),
             ...args = std::forward<Args>(args),
-            p = std::move(promise)]() mutable {
+            p = std::move(promise)](std::stop_token stopToken) mutable {
                 try {
-                    p->set_value(std::invoke(std::move(f), std::forward<Args>(args)...));
+                    p->set_value(std::invoke(std::move(f), stopToken, std::forward<Args>(args)...));
                 } catch (...) {
                     p->set_exception(std::current_exception());
                 }
@@ -86,10 +88,9 @@ public:
     }
 
 private:
-    using Work = std::function<void()>;
+    using Work = std::function<void(std::stop_token)>;
 
-    // TODO: forward stop token.
-    void stealWork();
+    void stealWork(std::stop_token token);
 
     WaitQueue<Work> q_;
     std::vector<std::jthread> threads_;

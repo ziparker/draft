@@ -27,6 +27,8 @@
 #ifndef __DRAFT_UTIL_SENDER_HH_
 #define __DRAFT_UTIL_SENDER_HH_
 
+#include <stop_token>
+
 #include "Util.hh"
 
 namespace draft::util {
@@ -38,7 +40,7 @@ public:
 
     Sender(ScopedFd fd, BufQueue &queue);
 
-    bool runOnce();
+    bool runOnce(std::stop_token stopToken);
 
 private:
     size_t write(BDesc desc);

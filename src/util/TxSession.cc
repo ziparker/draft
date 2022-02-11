@@ -76,7 +76,8 @@ void TxSession::start(const std::string &path)
 
 void TxSession::finish() noexcept
 {
-    // wait on readers.
+    spdlog::debug("txsession: cancelling read & send tasks.");
+
     readExec_.cancel();
     sendExec_.cancel();
 }

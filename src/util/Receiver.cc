@@ -40,7 +40,7 @@ Receiver::Receiver(ScopedFd fd, BufQueue &queue):
     pool_ = BufferPool::make(BufSize, 35);
 }
 
-bool Receiver::runOnce()
+bool Receiver::runOnce(std::stop_token stopToken)
 {
     if (fd_.get() < 0)
     {
@@ -55,7 +55,7 @@ bool Receiver::runOnce()
         }
     }
 
-    return waitData();
+    return waitData(stopToken);
 }
 
 int Receiver::waitConnect()
@@ -79,8 +79,10 @@ int Receiver::waitConnect()
     return 1;
 }
 
-bool Receiver::waitData()
+bool Receiver::waitData(std::stop_token stopToken)
 {
+    using namespace std::chrono_literals;
+
     if (!haveHeader_)
     {
         if (auto stat = readHeader(); stat <= 0)
@@ -98,12 +100,17 @@ bool Receiver::waitData()
             , header_.payloadLength
             , header_.fileId);
 
-        queue_->put({
-            std::make_shared<Buffer>(std::move(buf_)),
-            header_.fileId,
-            header_.fileOffset,
-            header_.payloadLength
-        });
+        auto buf = std::make_shared<Buffer>(std::move(buf_));
+
+        while (!stopToken.stop_requested() &&
+            !queue_->put({
+                buf,
+                header_.fileId,
+                header_.fileOffset,
+                header_.payloadLength
+            }, 100ms))
+        {
+        }
 
         ++stats().queuedBlockCount;
 
