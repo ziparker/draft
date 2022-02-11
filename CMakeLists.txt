@@ -142,7 +142,7 @@ if (DRAFT_ENABLE_TESTS)
     find_package(GTest REQUIRED)
     include(GoogleTest)
 
-    add_executable(gtest_draft gtest_draft.cc)
+    add_executable(gtest_draft test/gtest_draft.cc)
     target_link_libraries(gtest_draft PRIVATE GTest::GTest GTest::Main draftutil)
 
     gtest_discover_tests(gtest_draft)

@@ -1,0 +1,19 @@
+#!/bin/bash
+
+inputdir=pmt
+rootdir=xx
+
+die()
+{
+    echo $@
+    exit 1
+}
+
+which parallel || die "this script uses gnu parallel, which is not found in your \$PATH."
+
+[ $# -ne 2 ] && die "usage: $(basename "$0") dir1 dir2"
+
+dir1="${1%%/}"
+dir2="${2%%/}"
+
+parallel -n1 md5sum ::: $(find "$dir1"/ -type f) $(find "$dir2"/ -type f) | sort

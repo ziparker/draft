@@ -3,6 +3,8 @@
 operation="${1:-setup}"
 
 if [ "$operation" = "setup" ]; then
+    echo "setting-up veth devices in draft-rx netns"
+
     # create an rx namespace for receivers.
     sudo ip netns add draft-rx
 
@@ -24,6 +26,8 @@ if [ "$operation" = "setup" ]; then
         sudo tc qdisc add dev draft-tx$i root handle 1: netem rate 100mbit
     done
 else
+    echo "tearing-down veth devices in draft-rx netns"
+
     for i in {0..2}; do
         sudo ip link del draft-tx$i
     done
