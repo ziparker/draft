@@ -24,7 +24,9 @@
  * SOFTWARE.
  */
 
-#include "UtilJson.hh"
+#include <spdlog/spdlog.h>
+
+#include <draft/util/UtilJson.hh>
 
 namespace draft::util {
 
@@ -94,6 +96,11 @@ Buffer generateTransferRequestMsg(std::vector<FileInfo> info)
 
 TransferRequest deserializeTransferRequest(const Buffer &buf)
 {
+    return deserializeTransferRequest(buf.vector());
+}
+
+TransferRequest deserializeTransferRequest(const std::vector<uint8_t> &buf)
+{
     if (buf.size() < wire::UnalignedChunkHeaderSize)
     {
         throw std::invalid_argument(fmt::format("request buffer is too short to contain a valid request: {}/{}"
@@ -101,7 +108,7 @@ TransferRequest deserializeTransferRequest(const Buffer &buf)
             , sizeof(wire::ChunkHeader)));
     }
 
-    const auto j = nlohmann::json::from_cbor(buf.vector());
+    const auto j = nlohmann::json::from_cbor(buf);
     spdlog::info("req: {}", j.dump(4));
 
     auto req = TransferRequest{ };

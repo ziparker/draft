@@ -1,9 +1,9 @@
 /**
- * @file IovBuffer.hh
+ * @file ScopedMMap.hh
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2021 Zachary Parker
+ * Copyright (c) 2022 Zachary Parker
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -24,33 +24,42 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_IOV_BUFFER_HH__
-#define __DRAFT_IOV_BUFFER_HH__
+#ifndef __DRAFT_UTIL_SCOPED_MMAP_HH__
+#define __DRAFT_UTIL_SCOPED_MMAP_HH__
+
+#include <cstdint>
+#include <system_error>
+
+#include <sys/mman.h>
 
 namespace draft::util {
 
-class IovBuffer
+class ScopedMMap
 {
 public:
-    void reset()
-    {
-        free_[0].iov_base = data_;
-        free_[0].iov_len = size_;
-        free_[1] = { };
+    static ScopedMMap map(void *addr, size_t len, int prot, int flags, int fildes, off_t off);
 
-        used_ = {{ }, { }};
-    }
+    ScopedMMap() = default;
+    ~ScopedMMap() noexcept;
+    ScopedMMap(const ScopedMMap &) = delete;
+    ScopedMMap &operator=(const ScopedMMap &) = delete;
+    ScopedMMap(ScopedMMap &&o) noexcept;
+    ScopedMMap &operator=(ScopedMMap &&o) noexcept;
 
-    void write(size_t len)
-    {
-        free_
-    }
+    int unmap() noexcept;
+
+    void *data(size_t offset = 0) const noexcept;
+    uint8_t *uint8Data(size_t offset = 0) const noexcept;
+
+    size_t size() const noexcept;
+
+    bool offsetValid(size_t offset) const noexcept;
 
 private:
-    void *data_{ };
-    size_t size_{ };
-    iovec free_[2]{ };
-    iovec used_[2]{ };
+    ScopedMMap(void *addr, size_t len) noexcept;
+
+    void *addr_{ };
+    size_t len_{ };
 };
 
 }

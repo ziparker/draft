@@ -84,19 +84,39 @@ find_path(cufile_INCLUDE_DIRS cufile.h)
 find_path(nvcomp_INCLUDE_DIRS nvcomp.hpp)
 
 list(APPEND DRAFTUTIL_SRC
-    recv.cc send.cc Util.cc UtilJson.cc)
+    src/util/Buffer.cc
+    src/util/BufferPool.cc
+    src/util/InfoReceiver.cc
+    src/util/Reader.cc
+    src/util/Receiver.cc
+    src/util/RxSession.cc
+    src/util/ScopedMMap.cc
+    src/util/Sender.cc
+    src/util/TaskPool.cc
+    src/util/ThreadExecutor.cc
+    src/util/TxSession.cc
+    src/util/Util.cc
+    src/util/UtilJson.cc
+    src/util/Writer.cc)
+
+list(APPEND DRAFTCLI_SRC
+    src/cli/draft.cc
+    src/cli/transfer.cc)
 
 if (blosc2_LIBRARY AND blosc2_INCLUDE_DIRS)
-    list(APPEND DRAFTUTIL_SRC compress.cc)
+    list(APPEND DRAFTCLI_SRC src/cli/compress.cc)
 endif ()
 
 if (nvcomp_LIBRARY AND cufile_LIBRARY AND
     nvcomp_INCLUDE_DIRS AND cufile_INCLUDE_DIRS)
     message(STATUS "draft: including nvidia compression subcommand.")
-    list(APPEND DRAFTUTIL_SRC nvcompress.cc)
+    list(APPEND DRAFTCLI_SRC src/cli/nvcompress.cc)
 endif ()
 
 add_library(draftutil ${DRAFTUTIL_SRC})
+target_include_directories(draftutil PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
 target_link_libraries(draftutil
     PRIVATE spdlog::spdlog
     PUBLIC nlohmann_json::nlohmann_json)
@@ -115,17 +135,14 @@ if (nvcomp_LIBRARY)
     target_include_directories(draftutil PRIVATE ${nvcomp_INCLUDE_DIRS} ${cufile_INCLUDE_DIRS})
 endif ()
 
-add_executable(draft draft.cc)
+add_executable(draft ${DRAFTCLI_SRC})
 target_link_libraries(draft PRIVATE draftutil spdlog::spdlog)
-
-add_executable(prep prep.cc)
-target_link_libraries(prep PRIVATE draftutil spdlog::spdlog)
 
 if (DRAFT_ENABLE_TESTS)
     find_package(GTest REQUIRED)
     include(GoogleTest)
 
-    add_executable(gtest_draft gtest_draft.cc)
+    add_executable(gtest_draft test/gtest_draft.cc)
     target_link_libraries(gtest_draft PRIVATE GTest::GTest GTest::Main draftutil)
 
     gtest_discover_tests(gtest_draft)

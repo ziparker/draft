@@ -1,0 +1,36 @@
+#!/bin/bash
+
+operation="${1:-setup}"
+
+if [ "$operation" = "setup" ]; then
+    echo "setting-up veth devices in draft-rx netns"
+
+    # create an rx namespace for receivers.
+    sudo ip netns add draft-rx
+
+    # put peers in rx namespace
+    for i in {0..2}; do
+        # create a veth device, with the rx end in the rx namespace.
+        sudo ip link add draft-tx$i type veth peer name draft-rx$i netns draft-rx
+
+        # add IPs to each end of the veth - .100 for tx, .101 for rx namespace.
+        sudo ip addr add 10.77.$((2+i)).100/24 dev draft-tx$i
+        sudo ip netns exec draft-rx ip addr add 10.77.$((2+i)).101/24 dev draft-rx$i
+
+        # bring both interfaces up.
+        sudo ip link set draft-tx$i up
+        sudo ip netns exec draft-rx ip link set draft-rx$i up
+
+        # install rate limiting discipline on the tx side (for egress into rx
+        # namespace).
+        sudo tc qdisc add dev draft-tx$i root handle 1: netem rate 100mbit
+    done
+else
+    echo "tearing-down veth devices in draft-rx netns"
+
+    for i in {0..2}; do
+        sudo ip link del draft-tx$i
+    done
+
+    sudo ip netns del draft-rx
+fi

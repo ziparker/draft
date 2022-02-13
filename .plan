@@ -1,49 +1,58 @@
 durable, resumable, asynchronous file transfer
 ==============================================
 
-frame:
-    magic | version
-    len
-    cbor payload
+session
+    - tx/rx multiple files
+    - open net endpoints
+    - own buf pool
+    - own queue
+    - own exec
 
-start_req
-    file tree:
-        list of leaf dirs/perms
-        list of files/perms
+    auto s = txsession(config)
+        - create net eps
+    s.start(...)
+        - take file list, path, generator
+        - wrap senders around net eps
+        - add senders to exec
+        - for each file, open, create reader
+            - add reader(s) to exec
+            - get next reader when current completes or current file size < thresh
 
-start_rep
-    status (ok/error)
-    session id
-    file-id mapping
+    --
+    auto s = rxsession(config)
+        - create net eps
+    [awaitXferReq]
+    s.start(...)
+        - take file map arg
+        - wrap receivers around net eps
+        - add receivers to exec
+        - for reach file, open, add to vec
+        - wrap writer(s) around vec
+        - add writer to exec
 
-[idempotent]
-chunk_req
-    session id
-    file id
-    offset
-    len
-    [hash]
-
-chunk_rep
-    session id
-    file id
-    offset
-    len
-
-ping
-    session id
-
-pong
-    session id
-
-status_req
-    session id
-
-status_rep
-    session id
-    session start time
-    session end time
-    pct complete
+    s.runonce
 
 --
-- links operations: cqe wait hangs once we need > 7 file splice operations.
+- rx to fill bufs
+- header inline w/data, padded
+- tail writes padded by reader/sender
+    - rx can issue mixed inner/tail writes w/o leaking data from other files rx'd into megabuf
+- megabuf from pool
+    - rx fills
+    - rx walks through, creating & enqueuing subbufs
+    - subbufs are megabuf markers + shared ptr to megabuf
+    - all subbufs freed, megabuf returns to pool
+- rx to open files on demand instead of holding all descs open for duration of xfer
+- rx to track completion for each file, truncate at end & close
+
+- spdk/dpdk
+
+- usability
+    - [ ] multiple rx (persistent receiver)
+    - [ ] bind to i/f
+    - [ ] bind to ANY
+    - [ ] stats
+    - [ ] progress
+        - session?
+    - [ ] tui
+    - [ ] configurable buf size, r/w/tx/rx thd counts

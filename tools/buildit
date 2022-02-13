@@ -1,7 +1,6 @@
 #!/bin/bash
 
-export CC=clang
-export CXX=clang++
+echo "current CC/CXX: $CC/$CXX"
 
 cmake -B exbuild -S external -DCMAKE_INSTALL_PREFIX=env -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=OFF &&
 make -C exbuild -j$(nproc) &&

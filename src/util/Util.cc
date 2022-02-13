@@ -25,6 +25,7 @@
 
 #include <memory>
 #include <limits>
+#include <ranges>
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -33,13 +34,17 @@
 #include <netdb.h>
 #include <netinet/in.h>
 #include <poll.h>
-#include <sys/epoll.h>
 #include <sys/ioctl.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 
 #include <linux/if_tun.h>
 
-#include "Util.hh"
+#include <spdlog/spdlog.h>
+
+#include <draft/util/Util.hh>
+
+namespace fs = std::filesystem;
 
 namespace draft::util {
 
@@ -133,175 +138,107 @@ auto tcpAddrInfo(const std::string &host, uint16_t port)
     return std::unique_ptr<struct addrinfo, AddrInfoDeleter>(info);
 }
 
-}
+} // namespace
 
-////////////////////////////////////////////////////////////////////////////////
-// PollSet
-
-PollSet::PollSet():
-    epollFd_(epoll_create1(EPOLL_CLOEXEC))
+size_t readChunk(int fd, void *data, size_t dlen, size_t fileOffset)
 {
-    if (epollFd_.get() < 0)
-        throw std::system_error(errno, std::system_category(), "PollSet: epoll_create1");
-}
+    auto buf = reinterpret_cast<uint8_t *>(data);
 
-int PollSet::add(int fd, unsigned events, Callback &&cb)
-{
-    struct epoll_event evt{ };
-    evt.events = events;
-    evt.data.fd = fd;
-
-    if (!members_.insert({fd, Member{std::move(cb)}}).second)
-        throw std::runtime_error("PollSet::add: unable to add member fd " + std::to_string(fd));
-
-    if (epoll_ctl(epollFd_.get(), EPOLL_CTL_ADD, fd, &evt))
-        throw std::system_error(errno, std::system_category(), "PollSet::add: epoll_ctl_add");
-
-    return 0;
-}
-
-int PollSet::remove(int fd)
-{
-    if (epoll_ctl(epollFd_.get(), EPOLL_CTL_DEL, fd, nullptr))
-        spdlog::warn("PollSet::remove: epoll_ctl_del");
-
-    members_.erase(fd);
-
-    return 0;
-}
-
-int PollSet::waitOnce(int tmoMs, const EventCallback &cb)
-{
-    auto events = std::vector<struct epoll_event>{members_.size()};
-    auto count = epoll_wait(epollFd_.get(), events.data(), static_cast<int>(events.size()), tmoMs);
-
-    if (count < 0)
+    for (size_t offset = 0; offset < dlen; )
     {
-        if (errno == EINTR)
-            return 0;
+        auto len = ::pread(fd, buf + offset, dlen - offset, static_cast<off_t>(fileOffset + offset));
 
-        throw std::system_error(errno, std::system_category(), "PollSet::epoll_wait");
+        if (len < 0)
+            throw std::system_error(errno, std::system_category(), "pread");
+
+        if (!len)
+            return offset;
+
+        offset += static_cast<size_t>(len);
     }
 
-    if (cb)
-        cb(events);
-
-    return count;
+    return dlen;
 }
 
-int PollSet::waitOnce(int tmoMs)
+size_t writeChunk(int fd, iovec *iov, size_t iovCount)
 {
-    auto events = std::vector<struct epoll_event>{members_.size()};
-    auto count = epoll_wait(epollFd_.get(), events.data(), static_cast<int>(events.size()), tmoMs);
+    auto written = size_t{ };
 
-    if (count < 0)
+    while (iovCount)
     {
-        if (errno == EINTR)
-            return 0;
+        const auto len = ::writev(fd, iov, iovCount);
 
-        throw std::system_error(errno, std::system_category(), "PollSet::epoll_wait");
-    }
+        if (len < 0)
+            throw std::system_error(errno, std::system_category(), "write");
 
-    for (size_t i = 0; i < static_cast<size_t>(count); ++i)
-    {
-        auto member = members_.find(events[i].data.fd);
-        if (member == end(members_))
-            continue;
+        if (!len)
+            break;
 
-        if (member->second.callback)
+        auto ulen = static_cast<size_t>(len);
+
+        written += ulen;
+
+        while (ulen && iovCount)
         {
-            if (!member->second.callback(events[i].events))
-                remove(member->first);
+            const auto adv = std::min(iov->iov_len, ulen);
+            iov->iov_base = reinterpret_cast<uint8_t *>(iov->iov_base) + adv;
+            iov->iov_len -= adv;
+
+            ulen -= adv;
+
+            if (!iov->iov_len)
+            {
+                ++iov;
+                --iovCount;
+            }
         }
     }
 
-    return count;
+    return written;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// MmapAgent
-
-void MmapAgent::initNetwork(const AgentConfig &conf)
+size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset)
 {
-    for (const auto &target : conf.targets)
+    auto written = size_t{ };
+
+    while (iovCount)
     {
-        auto fd = net::connectTcp(target.ip, target.port);
-
-        if (fd.get() < 0)
+        if (offset > static_cast<size_t>(std::numeric_limits<off_t>::max()))
         {
-            spdlog::error("unable to connect to {}:{} - ignoring."
-                , target.ip, target.port);
-
-            continue;
+            throw std::range_error("writeChunk offset is out of off_t range.");
         }
 
-        poll_.add(fd.get(), EPOLLOUT);
+        const auto len = ::pwritev(fd, iov, iovCount, static_cast<off_t>(offset));
 
-        const auto rawFd = fd.get();
-        auto info = FdInfo{std::move(fd), 10000};
+        if (len < 0)
+            throw std::system_error(errno, std::system_category(), "write");
 
-        fdMap_.insert({rawFd, std::move(info)});
+        if (!len)
+            break;
+
+        auto ulen = static_cast<size_t>(len);
+
+        offset += ulen;
+        written += ulen;
+
+        while (ulen && iovCount)
+        {
+            const auto adv = std::min(iov->iov_len, ulen);
+            iov->iov_base = reinterpret_cast<uint8_t *>(iov->iov_base) + adv;
+            iov->iov_len -= adv;
+
+            ulen -= adv;
+
+            if (!iov->iov_len)
+            {
+                ++iov;
+                --iovCount;
+            }
+        }
     }
 
-    if (fdMap_.empty())
-        throw std::runtime_error("Agent: no targets desciptors available.");
-
-    fdIter_ = begin(fdMap_);
+    return written;
 }
-
-////////////////////////////////////////////////////////////////////////////////
-// FileAgent
-
-void FileAgent::initFileState(FileAgentConfig conf)
-{
-    namespace fs = std::filesystem;
-
-    fileMap_.clear();
-
-    auto infos = std::move(conf.fileInfo);
-
-    for (auto &info : infos)
-    {
-        if (S_ISDIR(info.status.mode))
-            continue;
-
-        auto state = FileState{ };
-
-        // we expect files to have been created & allocated elsewhere.
-        auto path = rootedPath(conf.root, info.path, info.targetSuffix);
-        auto flags = O_RDWR;
-
-        // XXX: info blksize is not the right thing to use here, just using as
-        // a hack for testing.
-        if (conf.enableDio && info.status.size > static_cast<size_t>(info.status.blkSize))
-        {
-            spdlog::info("enabling DIO for file {}", path.string());
-            flags |= O_DIRECT;
-        }
-
-        state.fd = ScopedFd{open(path.c_str(), flags)};
-
-        if (state.fd.get() < 0)
-        {
-            throw std::system_error(errno, std::system_category(),
-                fmt::format("FileAgent: open '{}'", path.string()));
-        }
-
-        spdlog::info("FileAgent: mapped file '{}' -> {}"
-            , path.string()
-            , info.id);
-
-        auto id = info.id;
-        state.info = std::move(info);
-
-        fileMap_.insert({id, std::move(state)});
-    }
-}
-
-////////////////////////////////////////////////////////////////////////////////
-// Agent Utils
-
-namespace fs = std::filesystem;
 
 namespace {
 
@@ -413,7 +350,7 @@ void createTargetFiles(const std::string &root, const std::vector<FileInfo> &inf
             continue;
 
         auto path = rootedPath(root, info.path, info.targetSuffix);
-        spdlog::info("createTargetFiles: create file '{}'", path.string());
+        spdlog::info("createTargetFiles: create file {}: '{}'", info.id, path.string());
 
         fs::create_directories(util::dirname(path));
 
@@ -430,8 +367,13 @@ void createTargetFiles(const std::string &root, const std::vector<FileInfo> &inf
         if (fd.get() < 0)
             throw std::system_error(errno, std::system_category(), "createTargetFiles: open");
 
-        if (posix_fallocate(fd.get(), 0, static_cast<off_t>(info.status.size)))
-            throw std::system_error(errno, std::system_category(), "createTargetFiles: posix_fallocate");
+        // allocate space for this file.
+        // this can take a while for large files.
+        if (auto stat = posix_fallocate(fd.get(), 0, static_cast<off_t>(info.status.size)))
+        {
+            spdlog::error("posix fallocate err {}", stat);
+            throw std::system_error(stat, std::system_category(), "createTargetFiles: posix_fallocate");
+        }
     }
 }
 
@@ -547,7 +489,8 @@ ScopedFd connectTcp(const std::string &host, uint16_t port, int tmoMs)
     if (::connect(fd.get(), reinterpret_cast<const struct sockaddr *>(&addr), sizeof(addr)) < 0)
     {
         if (errno != EINPROGRESS)
-            throw std::system_error(errno, std::system_category(), "connectTcp: connect");
+            throw std::system_error(errno, std::system_category(),
+                fmt::format("connectTcp: connect {}:{}", host, port));
 
         // wait for connection or timeout.
         auto pfd = pollfd{fd.get(), POLLOUT, 0};
@@ -696,6 +639,58 @@ void readAll(int fd, const struct iovec *iovs, size_t iovlen)
     iovOp(fd, iovs, iovlen, ::readv);
 }
 
+std::string peerName(int fd)
+{
+    auto addr = sockaddr_storage{ };
+    auto addrlen = static_cast<socklen_t>(sizeof(addr));
+
+    if (getpeername(fd, reinterpret_cast<struct sockaddr *>(&addr), &addrlen))
+        throw std::system_error(errno, std::system_category(), "getpeername");
+
+    auto host = std::string{ };
+    host.resize(256);
+
+    auto port = std::string{ };
+    port.resize(6);
+
+    if (auto err = getnameinfo(reinterpret_cast<const struct sockaddr *>(&addr), addrlen,
+        host.data(), host.size(),
+        port.data(), port.size(),
+        NI_NAMEREQD))
+    {
+        throw std::runtime_error("getnameinfo: " + std::string(gai_strerror(err)));
+    }
+
+    auto peer = std::string(host.c_str());
+    peer += ':';
+    peer += port.c_str();
+
+    return peer;
 }
+
+}
+
+std::vector<ScopedFd> connectNetworkTargets(const std::vector<NetworkTarget> &targets)
+{
+    const auto view = std::views::transform(
+        targets,
+        [](const NetworkTarget &t) {
+            return net::connectTcp(t.ip, t.port);
+        });
+
+    return {begin(view), end(view)};
+}
+
+std::vector<ScopedFd> bindNetworkTargets(const std::vector<NetworkTarget> &targets)
+{
+    const auto view = std::views::transform(
+        targets,
+        [](const NetworkTarget &t) {
+            return net::bindTcp(t.ip, t.port);
+        });
+
+    return {begin(view), end(view)};
+}
+
 
 }

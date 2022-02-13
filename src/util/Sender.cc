@@ -1,8 +1,9 @@
-/* @file Protocol.hh
+/**
+ * @file Sender.cc
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2021 Zachary Parker
+ * Copyright (c) 2022 Zachary Parker
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -23,52 +24,46 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_PROTOCOL_HH__
-#define __DRAFT_PROTOCOL_HH__
+#include <draft/util/Sender.hh>
+#include <draft/util/Stats.hh>
 
-#include <cstdint>
+namespace draft::util {
 
-namespace draft::wire {
-
-/**
- * Control protocol frame header.
- */
-struct Frame
+Sender::Sender(ScopedFd fd, BufQueue &queue):
+    queue_(&queue),
+    fd_(std::move(fd))
 {
-    static constexpr uint64_t Magic = 0x55aa'aa55'c721'a000;
-    static constexpr uint64_t MagicVersionMask = 0xfff;
-    static constexpr uint64_t MagicMask = ~MagicVersionMask;
-
-    uint64_t magic{ };
-    uint64_t payloadLength{ };
-    uint8_t pad0[4]{ };
-};
-
-static_assert(sizeof(Frame) == 24);
-static_assert(alignof(Frame) == 8);
-
-struct ChunkHeader
-{
-    static constexpr size_t BlockSize = 4096u;
-
-    static constexpr uint64_t Magic = 0x55aa'aa55'da7a'0000;
-    static constexpr uint64_t MagicVersionMask = 0xffff;
-    static constexpr uint64_t MagicMask = ~MagicVersionMask;
-
-    uint64_t magic{ };
-    uint64_t fileOffset{ };
-    uint64_t payloadLength{ };
-    uint16_t fileId{ };
-    uint8_t pad0[4]{ };
-    uint8_t pad_align[BlockSize - 32]{ };
-};
-
-constexpr size_t UnalignedChunkHeaderSize =
-    sizeof(ChunkHeader) - sizeof(ChunkHeader::pad_align);
-
-static_assert(sizeof(ChunkHeader) == ChunkHeader::BlockSize);
-static_assert(alignof(ChunkHeader) == 8);
-
 }
 
-#endif
+bool Sender::runOnce(std::stop_token stopToken)
+{
+    using namespace std::chrono_literals;
+
+    using Clock = std::chrono::steady_clock;
+
+    while (auto desc = queue_->get(Clock::now() + 1ms))
+    {
+        ++stats().dequeuedBlockCount;
+        stats().netByteCount += write(std::move(*desc)) - sizeof(wire::ChunkHeader);
+    }
+
+    return !stopToken.stop_requested();
+}
+
+size_t Sender::write(BDesc desc)
+{
+    auto header = wire::ChunkHeader{ };
+    header.magic = wire::ChunkHeader::Magic;
+    header.fileOffset = desc.offset;
+    header.payloadLength = desc.len;
+    header.fileId = desc.fileId;
+
+    iovec iov[2] = {
+        {&header, sizeof(header)},
+        {desc.buf->data(), desc.len}
+    };
+
+    return writeChunk(fd_.get(), iov, 2);
+}
+
+}

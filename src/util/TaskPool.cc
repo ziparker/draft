@@ -1,9 +1,9 @@
 /**
- * @file UtilJson.hh
+ * @file TaskPool.cc
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2021 Zachary Parker
+ * Copyright (c) 2022 Zachary Parker
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -24,25 +24,56 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_UTIL_JSON_HH__
-#define __DRAFT_UTIL_JSON_HH__
-
-#include <nlohmann/json.hpp>
-
-#include "Util.hh"
+#include <draft/util/TaskPool.hh>
 
 namespace draft::util {
 
-void to_json(nlohmann::json &j, const FileInfo::Status &status);
-void to_json(nlohmann::json &j, const FileInfo &info);
-
-void from_json(const nlohmann::json &j, FileInfo::Status &status);
-void from_json(const nlohmann::json &j, FileInfo &info);
-
-Buffer generateTransferRequestMsg(std::vector<FileInfo> info);
-
-TransferRequest deserializeTransferRequest(const Buffer &buf);
-
+TaskPool::TaskPool(size_t size)
+{
+    resize(size);
 }
 
-#endif
+TaskPool::~TaskPool() noexcept
+{
+    cancel();
+}
+
+void TaskPool::setQueueSizeLimit(size_t limit)
+{
+    q_.setSizeLimit(limit);
+}
+
+void TaskPool::cancel() noexcept
+{
+    q_.cancel();
+}
+
+bool TaskPool::cancelled() const noexcept
+{
+    return q_.done();
+}
+
+size_t TaskPool::size() const noexcept
+{
+    return threads_.size();
+}
+
+void TaskPool::resize(size_t newSize)
+{
+    const auto prevSize = threads_.size();
+    threads_.resize(newSize);
+
+    for (auto i = prevSize; i < newSize; ++i)
+        threads_[i] = std::jthread([this](std::stop_token token){ stealWork(token); });
+}
+
+void TaskPool::stealWork(std::stop_token token)
+{
+    while (!token.stop_requested() && !q_.done())
+    {
+        if (auto work = q_.get(); work && *work)
+            (*work)(token);
+    }
+}
+
+}
