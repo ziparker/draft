@@ -99,7 +99,7 @@ void RxSession::start(util::TransferRequest req)
 
     recvExec_.add(std::move(receivers));
 
-    writeExec_.add(Writer(std::move(fileMap), queue_));
+    writeExec_.add(Writer(std::move(fileMap), queue_), ThreadExecutor::Options::DoFinalize);
 
     fileInfo_ = std::move(fileInfo);
 }

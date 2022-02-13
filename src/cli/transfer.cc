@@ -199,10 +199,11 @@ void dumpStats(const draft::util::Stats &stats)
 
 namespace draft::cmd {
 
+using namespace std::chrono_literals;
+
 int recv(int argc, char **argv)
 {
     using namespace draft::util;
-    using namespace std::chrono_literals;
 
     spdlog::info("recv");
 
@@ -226,6 +227,7 @@ int recv(int argc, char **argv)
         std::this_thread::sleep_for(100ms);
 
     spdlog::info("ending rx session.");
+    sess.finish();
 
     dumpStats(stats());
 
@@ -253,7 +255,7 @@ int send(int argc, char **argv)
     sess.start(path);
 
     while (!done_ && sess.runOnce())
-        ;
+        std::this_thread::sleep_for(100ms);
 
     spdlog::info("ending tx session.");
 

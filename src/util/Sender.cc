@@ -45,12 +45,9 @@ bool Sender::runOnce(std::stop_token stopToken)
     {
         ++stats().dequeuedBlockCount;
         stats().netByteCount += write(std::move(*desc)) - sizeof(wire::ChunkHeader);
-
-        if (stopToken.stop_requested())
-            break;
     }
 
-    return true;
+    return !stopToken.stop_requested();
 }
 
 size_t Sender::write(BDesc desc)

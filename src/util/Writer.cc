@@ -49,12 +49,9 @@ bool Writer::runOnce(std::stop_token stopToken)
         ++stats().dequeuedBlockCount;
 
         stats().diskByteCount += write(std::move(*desc));
-
-        if (stopToken.stop_requested())
-            break;
     }
 
-    return true;
+    return !stopToken.stop_requested();
 }
 
 int Writer::getFd(unsigned id)

@@ -29,6 +29,7 @@
 
 #include <future>
 #include <memory>
+#include <thread>
 #include <type_traits>
 #include <vector>
 

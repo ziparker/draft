@@ -111,37 +111,14 @@ bool TxSession::runOnce()
     // processing completions until we're done.
     //
     // TODO: use info list, resubmit failed submissions.
-    if (fileIter_ == end(info_))
+    // TODO: check for resubmission requirement, flush only when we're
+    // done reading.
+    if (fileIter_ == end(info_) && readResults_.empty())
     {
-        // TODO: check - remove this section - iter == end(info) triggers wait
-        // - if read results is empty, after erase, cancel, wait finished (w/timeout) & return when waitfin returns true
+        spdlog::trace("waiting on xfer completion.");
 
-        spdlog::info("tx path transfer completed - waiting on readers & flushing sender data.");
-
-        // wait on remaining readers (currently assuming they all completed
-        // successfully).
-        for (auto &r : readResults_)
-        {
-            // TODO: test stop token
-            //if (!done_ && r.valid())
-            if (r.valid())
-                r.get();
-        }
-
-        readResults_.clear();
-
-        spdlog::info("finished waiting on readers, now flushing data to network.");
-
-        // if readers all finished successfully, run senders one more time
-        // to flush their input queues.
-        //
-        // TODO: check for resubmission requirement, flush only when we're
-        // done reading.
         sendExec_.cancel();
-        sendExec_.waitFinished();
-
-        // we don't need to keep running anymore.
-        return false;
+        return !sendExec_.finished();
     }
 
     return true;

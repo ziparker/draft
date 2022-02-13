@@ -79,6 +79,7 @@ public:
     bool runOnce();
 
     bool empty() const noexcept;
+    bool finished() const;
     void cancel() noexcept;
     void waitFinished() noexcept;
 
@@ -89,6 +90,7 @@ private:
         virtual ~Runnable() = default;
         virtual bool runOnce() const = 0;
         virtual void cancel() noexcept = 0;
+        virtual bool finished() const = 0;
     };
 
     template <typename T>
@@ -119,15 +121,20 @@ private:
             thd_.request_stop();
         }
 
-        void cancel() noexcept
-        {
-            thd_.request_stop();
-        }
-
     private:
         bool runOnce() const override
         {
             return !finished_;
+        }
+
+        void cancel() noexcept override
+        {
+            thd_.request_stop();
+        }
+
+        bool finished() const override
+        {
+            return finished_;
         }
 
         std::atomic_bool finished_{ };

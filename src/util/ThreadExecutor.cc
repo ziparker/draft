@@ -48,6 +48,14 @@ bool ThreadExecutor::empty() const noexcept
     return runq_.empty();
 }
 
+bool ThreadExecutor::finished() const
+{
+    return std::all_of(
+        begin(runq_),
+        end(runq_),
+        [](const auto &r) { return !r || r->finished(); });
+}
+
 void ThreadExecutor::cancel() noexcept
 {
     for (auto &r : runq_)
