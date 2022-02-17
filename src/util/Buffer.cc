@@ -43,12 +43,17 @@ Buffer::Buffer(const std::vector<uint8_t> &vec):
 {
 }
 
-Buffer::Buffer(const void *data, std::size_t size):
-    data_(std::malloc(size)),
-    size_(size)
+Buffer::Buffer(const void *data, std::size_t size)
 {
-    if (!data_)
+    if (!data || !size)
+        return;
+
+    auto p = std::malloc(size);
+    if (!p)
         throw std::bad_alloc();
+
+    data_ = p;
+    size_ = size;
 
     std::memcpy(data_, data, size_);
 }

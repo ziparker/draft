@@ -87,6 +87,7 @@ list(APPEND DRAFTUTIL_SRC
     src/util/Buffer.cc
     src/util/BufferPool.cc
     src/util/InfoReceiver.cc
+    src/util/PollSet.cc
     src/util/Reader.cc
     src/util/Receiver.cc
     src/util/RxSession.cc

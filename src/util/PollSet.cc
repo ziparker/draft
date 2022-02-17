@@ -24,6 +24,12 @@
  * SOFTWARE.
  */
 
+#include <string>
+
+#include <errno.h>
+
+#include <spdlog/spdlog.h>
+
 #include <draft/util/PollSet.hh>
 
 namespace draft::util {
@@ -62,6 +68,9 @@ int PollSet::remove(int fd)
 
 int PollSet::waitOnce(int tmoMs, const EventCallback &cb)
 {
+    if (members_.empty())
+        return 0;
+
     auto events = std::vector<struct epoll_event>{members_.size()};
     auto count = epoll_wait(epollFd_.get(), events.data(), static_cast<int>(events.size()), tmoMs);
 
@@ -81,6 +90,9 @@ int PollSet::waitOnce(int tmoMs, const EventCallback &cb)
 
 int PollSet::waitOnce(int tmoMs)
 {
+    if (members_.empty())
+        return 0;
+
     auto events = std::vector<struct epoll_event>{members_.size()};
     auto count = epoll_wait(epollFd_.get(), events.data(), static_cast<int>(events.size()), tmoMs);
 

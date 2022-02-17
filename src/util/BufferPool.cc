@@ -46,7 +46,7 @@ size_t FreeList::get()
     auto idx = free_;
 
     if (free_ == End)
-        return ~0u;
+        return End;
 
     free_ = list_[free_];
 
@@ -118,10 +118,10 @@ BufferPool::Buffer BufferPool::get()
         if (done_)
             return true;
         idx = freeList_.get();
-        return idx != ~0u;
+        return idx != FreeList::End;
     });
 
-    if (done_ || idx == ~0u)
+    if (done_ || idx == FreeList::End)
         return { };
 
     return {

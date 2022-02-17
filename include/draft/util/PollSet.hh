@@ -28,6 +28,7 @@
 #define __DRAFT_UTIL_POLL_SET_HH__
 
 #include <functional>
+#include <system_error>
 #include <unordered_map>
 
 #include <sys/epoll.h>
