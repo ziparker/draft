@@ -114,6 +114,9 @@ bool Receiver::waitData(std::stop_token stopToken)
 
         ++stats().queuedBlockCount;
 
+        if (auto s = stats(header_.fileId))
+            ++s->queuedBlockCount;
+
         haveHeader_ = false;
         offset_ = 0;
     }
@@ -173,6 +176,9 @@ bool Receiver::read()
         throw std::system_error(errno, std::system_category(), "read");
 
     stats().netByteCount += len;
+
+    if (auto s = stats(header_.fileId))
+        s->netByteCount += len;
 
     offset_ += static_cast<size_t>(len);
 

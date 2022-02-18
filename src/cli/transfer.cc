@@ -150,7 +150,10 @@ void updateFileStats(const std::vector<draft::util::FileInfo> &info)
     for (const auto &item : info)
     {
         if (S_ISREG(item.status.mode))
+        {
             draft::util::stats().fileByteCount += item.status.size;
+            draft::util::stats(item.id).fileByteCount = item.status.size;
+        }
     }
 }
 
