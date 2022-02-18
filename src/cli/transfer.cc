@@ -224,6 +224,8 @@ int recv(int argc, char **argv)
     if (!req)
         return 1;
 
+    statsMgr().reallocate(req->config.fileInfo.size());
+
     spdlog::info("starting rx session.");
     sess.start(std::move(*req));
 
@@ -251,6 +253,8 @@ int send(int argc, char **argv)
     // this is redundant atm.
     auto fileInfo = getFileInfo(path);
     auto sess = draft::util::TxSession(opts.session);
+
+    statsMgr().reallocate(fileInfo.size());
 
     auto fd = net::connectTcp(opts.session.service.ip, opts.session.service.port);
     sendTransferRequest(std::move(fd), fileInfo);

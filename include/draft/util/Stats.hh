@@ -28,6 +28,7 @@
 #define __DRAFT_UTIL_STATS_HH__
 
 #include <atomic>
+#include <optional>
 
 namespace draft::util {
 
@@ -40,10 +41,44 @@ struct Stats
     std::atomic_uint fileByteCount{ };
 };
 
-inline Stats &stats()
+struct StatsManager
 {
-    static Stats stats{ };
-    return stats;
+    Stats &get()
+    {
+        return globalStats;
+    }
+
+    void reallocate(size_t size)
+    {
+        fileStats = std::vector<Stats>(size);
+    }
+
+    std::optional<std::reference_wrapper<Stats>> get(unsigned id)
+    {
+        if (id >= fileStats.size())
+            return { };
+
+        return fileStats[id];
+    }
+
+    Stats globalStats;
+    std::vector<Stats> fileStats;
+};
+
+inline StatsManager &statsMgr()
+{
+    static StatsManager mgr{ };
+    return mgr;
+}
+
+inline decltype(auto) stats()
+{
+    return statsMgr().get();
+}
+
+inline decltype(auto) stats(size_t id)
+{
+    return statsMgr().get(id);
 }
 
 }
