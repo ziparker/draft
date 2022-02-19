@@ -210,6 +210,9 @@ namespace draft::cmd {
 
 using namespace std::chrono_literals;
 
+using Clock = std::chrono::steady_clock;
+using Duration = std::chrono::duration<double>;
+
 int recv(int argc, char **argv)
 {
     using namespace draft::util;
@@ -234,8 +237,16 @@ int recv(int argc, char **argv)
     spdlog::info("starting rx session.");
     sess.start(std::move(*req));
 
+    auto deadline = Clock::now();
     while (!done_ && sess.runOnce())
-        std::this_thread::sleep_for(100ms);
+    {
+        spdlog::info("wait time: {:.3f}"
+            , Duration(Clock::now() - deadline).count());
+
+        std::this_thread::sleep_until(deadline);
+
+        deadline = Clock::now() + 100ms;
+    }
 
     spdlog::info("ending rx session.");
     sess.finish();
@@ -267,8 +278,16 @@ int send(int argc, char **argv)
     spdlog::info("starting tx session.");
     sess.start(path);
 
+    auto deadline = Clock::now();
     while (!done_ && sess.runOnce())
-        std::this_thread::sleep_for(100ms);
+    {
+        spdlog::info("wait time: {:.3f}"
+            , Duration(Clock::now() - deadline).count());
+
+        std::this_thread::sleep_until(deadline);
+
+        deadline = Clock::now() + 100ms;
+    }
 
     spdlog::info("ending tx session.");
 
