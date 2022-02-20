@@ -29,6 +29,7 @@
 
 #include <atomic>
 #include <optional>
+#include <vector>
 
 namespace draft::util {
 
@@ -63,6 +64,23 @@ struct StatsManager
 
     Stats globalStats;
     std::vector<Stats> fileStats;
+};
+
+class StatsHandler
+{
+public:
+    StatsHandler() = default;
+    StatsHandler(const StatsHandler &) = delete;
+    StatsHandler &operator=(const StatsHandler &) = delete;
+    virtual ~StatsHandler() = default;
+
+    void handleStats(const Stats &globalStats, const std::vector<Stats> &fileStats)
+    {
+        handleStatsPrivate(globalStats, fileStats);
+    }
+
+private:
+    virtual void handleStatsPrivate(const Stats &globalStats, const std::vector<Stats> &fileStats) = 0;
 };
 
 inline StatsManager &statsMgr()

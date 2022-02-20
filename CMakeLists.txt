@@ -93,6 +93,7 @@ list(APPEND DRAFTUTIL_SRC
     src/util/RxSession.cc
     src/util/ScopedMMap.cc
     src/util/Sender.cc
+    src/util/StatsPublisher.cc
     src/util/TaskPool.cc
     src/util/ThreadExecutor.cc
     src/util/TxSession.cc
