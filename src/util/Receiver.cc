@@ -115,7 +115,7 @@ bool Receiver::waitData(std::stop_token stopToken)
         ++stats().queuedBlockCount;
 
         if (auto s = stats(header_.fileId))
-            ++s->get().queuedBlockCount;
+            ++s->queuedBlockCount;
 
         haveHeader_ = false;
         offset_ = 0;
@@ -178,7 +178,7 @@ bool Receiver::read()
     stats().netByteCount += len;
 
     if (auto s = stats(header_.fileId))
-        s->get().netByteCount += len;
+        s->netByteCount += len;
 
     offset_ += static_cast<size_t>(len);
 

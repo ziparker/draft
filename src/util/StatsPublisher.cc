@@ -1,4 +1,4 @@
-/* @file Stats.cc
+/* @file ProgressDisplay.cc
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
@@ -25,27 +25,79 @@
 
 #include <algorithm>
 
-#include <draft/util/StatsPublisher.hh>
+#include <draft/util/ProgressDisplay.hh>
 
-namespace draft::util {
+// include last b/c this indiscriminantly defines macros.
+#include <ncurses.h>
 
-StatsPublisher::StatsPublisher(const std::vector<FileInfo> &info)
+namespace draft::ui {
+
+using util::FileInfo;
+using util::Stats;
+
+struct ProgressDisplay::Data
+{
+    std::vector<FileEntry> files;
+
+    WINDOW debugWin{ };
+    WINDOW progressWin{ };
+};
+
+ProgressDisplay::ProgressDisplay():
+    d_(std::make_unique<Data>())
+{
+}
+
+ProgressDisplay::ProgressDisplay(const std::vector<FileInfo> &info):
+    ProgressDisplay()
 {
     registerFiles(info);
+    setupDisplay();
 }
 
-void StatsPublisher::handleStatsPrivate(const Stats &, const std::vector<Stats> &)
+ProgressDisplay::~ProgressDisplay() noexcept
+{
+    teardownDisplay();
+}
+
+void ProgressDisplay::runOnce()
+{
+    renderStats();
+
+    ::refresh();
+}
+
+void ProgressDisplay::handleStatsPrivate(const Stats &, const std::vector<Stats> &)
 {
 }
 
-void StatsPublisher::registerFiles(const std::vector<FileInfo> &infos)
+void ProgressDisplay::registerFiles(const std::vector<FileInfo> &infos)
 {
-    files_.resize(infos.size());
+    d_->files.resize(infos.size());
 
-    std::transform(begin(infos), end(infos), begin(files_),
+    std::transform(begin(infos), end(infos), begin(d_->files),
         [](const FileInfo &info) {
             return FileEntry{info.path, info.status.size, info.id};
         });
+}
+
+void ProgressDisplay::setupDisplay()
+{
+    ::initscr();
+    ::cbreak();
+    ::noecho();
+
+    ::intrflush(stdscr, FALSE);
+    ::keypad(stdscr, TRUE);
+}
+
+void ProgressDisplay::teardownDisplay()
+{
+    ::endwin();
+}
+
+void ProgressDisplay::renderStats()
+{
 }
 
 }

@@ -54,12 +54,12 @@ struct StatsManager
         fileStats = std::vector<Stats>(size);
     }
 
-    std::optional<std::reference_wrapper<Stats>> get(unsigned id)
+    Stats *get(unsigned id)
     {
         if (id >= fileStats.size())
             return { };
 
-        return fileStats[id];
+        return &fileStats[id];
     }
 
     Stats globalStats;

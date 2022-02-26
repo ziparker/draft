@@ -1,5 +1,4 @@
-/**
- * @file Sender.cc
+/* @file ProgressDisplay.hh
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
@@ -24,55 +23,51 @@
  * SOFTWARE.
  */
 
-#include <draft/util/Sender.hh>
-#include <draft/util/Stats.hh>
+#ifndef __DRAFT_UTIL_PROGRESS_DISPLAY_HH__
+#define __DRAFT_UTIL_PROGRESS_DISPLAY_HH__
 
-namespace draft::util {
+#include <memory>
 
-Sender::Sender(ScopedFd fd, BufQueue &queue):
-    queue_(&queue),
-    fd_(std::move(fd))
+#include "Stats.hh"
+#include "Util.hh"
+
+namespace draft::ui {
+
+class ProgressDisplay: public util::StatsHandler
 {
-}
-
-bool Sender::runOnce(std::stop_token stopToken)
-{
-    using namespace std::chrono_literals;
-
-    using Clock = std::chrono::steady_clock;
-
-    while (auto desc = queue_->get(Clock::now() + 1ms))
+public:
+    struct FileEntry
     {
-        ++stats().dequeuedBlockCount;
-
-        if (auto s = stats(desc->fileId))
-            ++s->dequeuedBlockCount;
-
-        const auto len = write(std::move(*desc)) - sizeof(wire::ChunkHeader);
-
-        stats().netByteCount += len;
-
-        if (auto s = stats(desc->fileId))
-            s->netByteCount += len;
-    }
-
-    return !stopToken.stop_requested();
-}
-
-size_t Sender::write(BDesc desc)
-{
-    auto header = wire::ChunkHeader{ };
-    header.magic = wire::ChunkHeader::Magic;
-    header.fileOffset = desc.offset;
-    header.payloadLength = desc.len;
-    header.fileId = desc.fileId;
-
-    iovec iov[2] = {
-        {&header, sizeof(header)},
-        {desc.buf->data(), desc.len}
+        std::string path;
+        size_t size{ };
+        unsigned id{ };
     };
 
-    return writeChunk(fd_.get(), iov, 2);
-}
+    ProgressDisplay();
+    explicit ProgressDisplay(const std::vector<util::FileInfo> &info);
+
+    ProgressDisplay(const ProgressDisplay &) = delete;
+    ProgressDisplay &operator=(const ProgressDisplay &) = delete;
+
+    ~ProgressDisplay() noexcept;
+
+    void runOnce();
+
+private:
+    struct Data;
+
+    void handleStatsPrivate(const util::Stats &globalStats, const std::vector<util::Stats> &fileStats) override;
+
+    void registerFiles(const std::vector<util::FileInfo> &info);
+
+    void setupDisplay();
+    void teardownDisplay();
+
+    void renderStats();
+
+    std::unique_ptr<Data> d_;
+};
 
 }
+
+#endif

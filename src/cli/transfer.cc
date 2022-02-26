@@ -154,7 +154,7 @@ void updateFileStats(const std::vector<draft::util::FileInfo> &info)
             draft::util::stats().fileByteCount += item.status.size;
 
             if (auto s = draft::util::stats(item.id))
-                s->get().fileByteCount = item.status.size;
+                s->fileByteCount = item.status.size;
         }
     }
 }

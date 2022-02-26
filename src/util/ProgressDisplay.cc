@@ -1,4 +1,4 @@
-/* @file StatsPublisher.hh
+/* @file Stats.cc
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
@@ -23,35 +23,29 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_UTIL_STATS_PUBLISHER_HH__
-#define __DRAFT_UTIL_STATS_PUBLISHER_HH__
+#include <algorithm>
 
-#include "Stats.hh"
-#include "Util.hh"
+#include <draft/util/ProgressDisplay.hh>
 
 namespace draft::util {
 
-class StatsPublisher: public StatsHandler
+ProgressDisplay::ProgressDisplay(const std::vector<FileInfo> &info)
 {
-public:
-    struct FileEntry
-    {
-        std::string path;
-        size_t size{ };
-        unsigned id{ };
-    };
-
-    StatsPublisher() = default;
-    explicit StatsPublisher(const std::vector<FileInfo> &info);
-
-private:
-    void handleStatsPrivate(const Stats &globalStats, const std::vector<Stats> &fileStats) override;
-
-    void registerFiles(const std::vector<FileInfo> &info);
-
-    std::vector<FileEntry> files_;
-};
-
+    registerFiles(info);
 }
 
-#endif
+void ProgressDisplay::handleStatsPrivate(const Stats &, const std::vector<Stats> &)
+{
+}
+
+void ProgressDisplay::registerFiles(const std::vector<FileInfo> &infos)
+{
+    files_.resize(infos.size());
+
+    std::transform(begin(infos), end(infos), begin(files_),
+        [](const FileInfo &info) {
+            return FileEntry{info.path, info.status.size, info.id};
+        });
+}
+
+}

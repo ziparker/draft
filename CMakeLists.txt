@@ -140,6 +140,9 @@ endif ()
 add_executable(draft ${DRAFTCLI_SRC})
 target_link_libraries(draft PRIVATE draftutil spdlog::spdlog)
 
+add_executable(ui ui.cc)
+target_link_libraries(ui PRIVATE draftutil spdlog::spdlog ncurses)
+
 if (DRAFT_ENABLE_TESTS)
     find_package(GTest REQUIRED)
     include(GoogleTest)
