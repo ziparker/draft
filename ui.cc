@@ -29,7 +29,7 @@ int main()
     while (!done_)
     {
         d.runOnce();
-        std::this_thread::sleep_for(200ms);
+        std::this_thread::sleep_for(100ms);
     }
 
     spdlog::info("draft ui test exiting.");

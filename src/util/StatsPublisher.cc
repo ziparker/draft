@@ -35,12 +35,15 @@ namespace draft::ui {
 using util::FileInfo;
 using util::Stats;
 
+using WinPtr = std::unique_ptr<WINDOW, decltype(&::delwin)>;
+inline WinPtr winPtr(WINDOW *w = nullptr) noexcept { return {w, ::delwin}; }
+
 struct ProgressDisplay::Data
 {
     std::vector<FileEntry> files;
 
-    WINDOW debugWin{ };
-    WINDOW progressWin{ };
+    WinPtr debugWin{winPtr()};
+    WinPtr progressWin{winPtr()};
 };
 
 ProgressDisplay::ProgressDisplay():
@@ -89,6 +92,13 @@ void ProgressDisplay::setupDisplay()
 
     ::intrflush(stdscr, FALSE);
     ::keypad(stdscr, TRUE);
+
+    #if 0
+    const auto curLines = 
+    const auto curCols = 
+    #endif
+
+    d_->debugWin = winPtr(::newwin(10, 80, 0, 0));
 }
 
 void ProgressDisplay::teardownDisplay()
