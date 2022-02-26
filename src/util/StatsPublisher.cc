@@ -93,16 +93,23 @@ void ProgressDisplay::setupDisplay()
     ::intrflush(stdscr, FALSE);
     ::keypad(stdscr, TRUE);
 
-    #if 0
-    const auto curLines = 
-    const auto curCols = 
-    #endif
+    static constexpr auto progressLines = 10;
 
-    d_->debugWin = winPtr(::newwin(10, 80, 0, 0));
+    if (LINES > progressLines)
+        d_->debugWin = winPtr(::newwin(LINES - progressLines, COLS, 0, 0));
+
+    d_->progressWin = winPtr(::newwin(
+        std::min(LINES, progressLines), COLS, std::max(LINES - progressLines, 0), 0));
+
+    ::leaveok(d_->debugWin.get(), TRUE);
+    ::scrollok(d_->debugWin.get(), FALSE);
 }
 
 void ProgressDisplay::teardownDisplay()
 {
+    d_->debugWin.reset();
+    d_->progressWin.reset();
+
     ::endwin();
 }
 
