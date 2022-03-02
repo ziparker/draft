@@ -24,38 +24,25 @@
  */
 
 #include <algorithm>
+#include <cstring>
 
 #include <draft/util/ProgressDisplay.hh>
-
-// include last b/c this indiscriminantly defines macros.
-#include <ncurses.h>
+#include <spdlog/spdlog.h>
 
 namespace draft::ui {
 
 using util::FileInfo;
 using util::Stats;
 
-using WinPtr = std::unique_ptr<WINDOW, decltype(&::delwin)>;
-inline WinPtr winPtr(WINDOW *w = nullptr) noexcept { return {w, ::delwin}; }
-
-struct ProgressDisplay::Data
+ProgressDisplay::ProgressDisplay()
 {
-    std::vector<FileEntry> files;
-
-    WinPtr debugWin{winPtr()};
-    WinPtr progressWin{winPtr()};
-};
-
-ProgressDisplay::ProgressDisplay():
-    d_(std::make_unique<Data>())
-{
+    setupDisplay();
 }
 
 ProgressDisplay::ProgressDisplay(const std::vector<FileInfo> &info):
     ProgressDisplay()
 {
     registerFiles(info);
-    setupDisplay();
 }
 
 ProgressDisplay::~ProgressDisplay() noexcept
@@ -66,8 +53,6 @@ ProgressDisplay::~ProgressDisplay() noexcept
 void ProgressDisplay::runOnce()
 {
     renderStats();
-
-    ::refresh();
 }
 
 void ProgressDisplay::handleStatsPrivate(const Stats &, const std::vector<Stats> &)
@@ -76,9 +61,9 @@ void ProgressDisplay::handleStatsPrivate(const Stats &, const std::vector<Stats>
 
 void ProgressDisplay::registerFiles(const std::vector<FileInfo> &infos)
 {
-    d_->files.resize(infos.size());
+    files_.resize(infos.size());
 
-    std::transform(begin(infos), end(infos), begin(d_->files),
+    std::transform(begin(infos), end(infos), begin(files_),
         [](const FileInfo &info) {
             return FileEntry{info.path, info.status.size, info.id};
         });
@@ -86,31 +71,14 @@ void ProgressDisplay::registerFiles(const std::vector<FileInfo> &infos)
 
 void ProgressDisplay::setupDisplay()
 {
-    ::initscr();
-    ::cbreak();
-    ::noecho();
+    constexpr auto ClearScreen = "\x1b[2J";
+    spdlog::info(__func__);
 
-    ::intrflush(stdscr, FALSE);
-    ::keypad(stdscr, TRUE);
-
-    static constexpr auto progressLines = 10;
-
-    if (LINES > progressLines)
-        d_->debugWin = winPtr(::newwin(LINES - progressLines, COLS, 0, 0));
-
-    d_->progressWin = winPtr(::newwin(
-        std::min(LINES, progressLines), COLS, std::max(LINES - progressLines, 0), 0));
-
-    ::leaveok(d_->debugWin.get(), TRUE);
-    ::scrollok(d_->debugWin.get(), FALSE);
+    dprintf(1, "%s", ClearScreen);
 }
 
 void ProgressDisplay::teardownDisplay()
 {
-    d_->debugWin.reset();
-    d_->progressWin.reset();
-
-    ::endwin();
 }
 
 void ProgressDisplay::renderStats()

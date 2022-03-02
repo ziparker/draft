@@ -54,7 +54,10 @@ public:
     void runOnce();
 
 private:
-    struct Data;
+    struct DisplayData
+    {
+        
+    };
 
     void handleStatsPrivate(const util::Stats &globalStats, const std::vector<util::Stats> &fileStats) override;
 
@@ -65,7 +68,7 @@ private:
 
     void renderStats();
 
-    std::unique_ptr<Data> d_;
+    std::vector<FileEntry> files_;
 };
 
 }
