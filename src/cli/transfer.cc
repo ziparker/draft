@@ -71,9 +71,10 @@ struct Options
 
 Options parseOptions(int argc, char **argv)
 {
-    static constexpr const char *shortOpts = "hp:s:t:";
+    static constexpr const char *shortOpts = "hnp:s:t:";
     static constexpr struct option longOpts[] = {
         {"help", no_argument, nullptr, 'h'},
+        {"nodirect", no_argument, nullptr, 'n'},
         {"path", required_argument, nullptr, 'p'},
         {"service", required_argument, nullptr, 's'},
         {"target", required_argument, nullptr, 't'},
@@ -85,7 +86,7 @@ Options parseOptions(int argc, char **argv)
 
     const auto usage = [argv] {
             spdlog::info(
-                "usage: {} (send|recv) [-h][-p <path>][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
+                "usage: {} (send|recv) [-h][-n][-p <path>][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
                 , ::basename(argv[0]));
         };
 
@@ -98,6 +99,9 @@ Options parseOptions(int argc, char **argv)
             case 'h':
                 usage();
                 std::exit(0);
+            case 'n':
+                opts.session.useDirectIO = false;
+                break;
             case 'p':
                 opts.session.pathRoot = optarg;
                 break;

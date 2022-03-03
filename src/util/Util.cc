@@ -367,6 +367,9 @@ void createTargetFiles(const std::string &root, const std::vector<FileInfo> &inf
         if (fd.get() < 0)
             throw std::system_error(errno, std::system_category(), "createTargetFiles: open");
 
+        if (!info.status.size)
+            continue;
+
         // allocate space for this file.
         // this can take a while for large files.
         if (auto stat = posix_fallocate(fd.get(), 0, static_cast<off_t>(info.status.size)))

@@ -130,6 +130,7 @@ struct SessionConfig
     std::vector<NetworkTarget> targets;
     NetworkTarget service;
     std::string pathRoot{"."};
+    bool useDirectIO{true};
 };
 
 using BufQueue = WaitQueue<BDesc>;

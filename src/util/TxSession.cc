@@ -126,7 +126,7 @@ bool TxSession::runOnce()
 
 TxSession::file_info_iter_type TxSession::nextFile(file_info_iter_type first, file_info_iter_type last)
 {
-    while (first != last && !S_ISREG(first->status.mode))
+    while (first != last && (!S_ISREG(first->status.mode) || !first->status.size))
         ++first;
 
     return first;
@@ -139,8 +139,13 @@ bool TxSession::startFile(const FileInfo &info)
     using Clock = std::chrono::steady_clock;
 
     const auto &filename = info.path;
+    auto flags = O_RDONLY;
+
+    if (conf_.useDirectIO)
+        flags |= O_DIRECT;
+
     auto fd = std::make_shared<ScopedFd>(
-        ScopedFd{::open(filename.c_str(), O_RDONLY | O_DIRECT)});
+        ScopedFd{::open(filename.c_str(), flags)});
 
     spdlog::debug("tx opened file id {}: {} @ fd {}", info.id, filename, fd->get());
 
