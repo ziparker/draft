@@ -31,15 +31,18 @@ int main()
     auto p = draft::ui::ProgressDisplay{ };
     p.init();
 
-    p.add("foo", 0);
+    p.add("foo");
+    p.add("bar baz path");
+    p.add("baz");
 
     auto updateTime = Clock::now() + 1s;
-    float fooPct{ };
+    float fooPct{ }, barPct{ };
     while (!done_)
     {
         if (auto now = Clock::now(); now > updateTime)
         {
             p.update("foo", fooPct += .1);
+            p.update("bar baz path", barPct += .05);
             updateTime = now + 1s;
         }
 

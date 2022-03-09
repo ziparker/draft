@@ -46,6 +46,7 @@ struct ColorNormal { };
 
 struct ClearScreen { };
 struct CursorHome { };
+struct CursorPosition { size_t row{ }, col{ }; };
 struct CursorUp { };
 struct CursorDown { };
 struct CursorRight { size_t cols{ }; };
@@ -83,19 +84,24 @@ inline std::ostream &operator<<(std::ostream &s, const CursorHome &)
     return s << "\x1b[H";
 }
 
+inline std::ostream &operator<<(std::ostream &s, const CursorPosition &c)
+{
+    return s << "\x1b[" << c.row << ';' << c.col << 'f';
+}
+
 inline std::ostream &operator<<(std::ostream &s, const CursorRight &c)
 {
-    return s << "\x1b[" << c.cols << "C";
+    return s << "\x1b[" << c.cols << 'C';
 }
 
 inline std::ostream &operator<<(std::ostream &s, const CursorBeginDown &c)
 {
-    return s << "\x1b[" << c.lines << "E";
+    return s << "\x1b[" << c.lines << 'E';
 }
 
 inline std::ostream &operator<<(std::ostream &s, const CursorCol &c)
 {
-    return s << "\x1b[" << c.col << "G";
+    return s << "\x1b[" << c.col << 'G';
 }
 
 inline std::ostream &operator<<(std::ostream &s, const EraseLine &)
@@ -168,8 +174,7 @@ inline std::ostream &operator<<(std::ostream &s, const Progress &p)
 
     const auto meter = std::string(pctLen, '=');
 
-    return s << "\x1b[" << p.row << ";" << p.startCol << 'H' << meter <<
-        term::CursorCol(p.startCol + len);
+    return s << meter << term::CursorCol(p.endCol + 1);
 }
 
 }
@@ -204,21 +209,25 @@ public:
     {
         const auto winSz = term::winSize();
 
+        unsigned row = 1;
         for (auto &[name, conf] : lineMap_)
         {
             std::cout <<
-                term::CursorHome{ } <<
+                term::CursorPosition{row, 0} <<
+                term::EraseLine{ } <<
                 name <<
-                term::CursorRight{name.size() + 2} <<
+                term::CursorRight{2} <<
                 conf.startChar.get() <<
-                io::Progress{10, std::min(winSz.cols, conf.endCol), conf.row, conf.pct} <<
-                conf.endChar.get() <<
-                term::CursorBeginDown{1} <<
-                term::EraseCursorToEnd{ };
+                io::Progress{conf.startCol, std::min(winSz.cols, conf.endCol), row, conf.pct} <<
+                conf.endChar.get();
 
             conf.startChar.tick();
             conf.endChar.tick();
+
+            ++row;
         }
+
+        std::cout << term::CursorBeginDown{1};
     }
 
     void update(const std::string &key, float pct)
@@ -226,12 +235,13 @@ public:
         lineMap_[key].pct = pct;
     }
 
-    void add(const std::string &key, float pct)
+    void add(const std::string &key, float pct = 0.0f)
     {
         auto &conf = lineMap_[key];
         conf.pct = std::clamp(pct, 0.0f, 1.0f);
         conf.row = rows_++;
-        conf.startCol = key.size() + 1 + 2;
+        // leave room for space + start char.
+        conf.startCol = key.size() + 2;
         conf.endCol = 120;
     }
 
