@@ -150,7 +150,12 @@ void updateFileStats(const std::vector<draft::util::FileInfo> &info)
     for (const auto &item : info)
     {
         if (S_ISREG(item.status.mode))
+        {
             draft::util::stats().fileByteCount += item.status.size;
+
+            if (auto s = draft::util::stats(item.id))
+                s->get().fileByteCount = item.status.size;
+        }
     }
 }
 
@@ -224,6 +229,8 @@ int recv(int argc, char **argv)
     if (!req)
         return 1;
 
+    statsMgr().reallocate(req->config.fileInfo.size());
+
     spdlog::info("starting rx session.");
     sess.start(std::move(*req));
 
@@ -251,6 +258,8 @@ int send(int argc, char **argv)
     // this is redundant atm.
     auto fileInfo = getFileInfo(path);
     auto sess = draft::util::TxSession(opts.session);
+
+    statsMgr().reallocate(fileInfo.size());
 
     auto fd = net::connectTcp(opts.session.service.ip, opts.session.service.port);
     sendTransferRequest(std::move(fd), fileInfo);

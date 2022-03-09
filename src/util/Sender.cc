@@ -44,7 +44,16 @@ bool Sender::runOnce(std::stop_token stopToken)
     while (auto desc = queue_->get(Clock::now() + 1ms))
     {
         ++stats().dequeuedBlockCount;
-        stats().netByteCount += write(std::move(*desc)) - sizeof(wire::ChunkHeader);
+
+        if (auto s = stats(desc->fileId))
+            ++s->get().dequeuedBlockCount;
+
+        const auto len = write(std::move(*desc)) - sizeof(wire::ChunkHeader);
+
+        stats().netByteCount += len;
+
+        if (auto s = stats(desc->fileId))
+            s->get().netByteCount += len;
     }
 
     return !stopToken.stop_requested();

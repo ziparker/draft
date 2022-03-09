@@ -1,38 +1,10 @@
 durable, resumable, asynchronous file transfer
 ==============================================
 
-session
-    - tx/rx multiple files
-    - open net endpoints
-    - own buf pool
-    - own queue
-    - own exec
-
-    auto s = txsession(config)
-        - create net eps
-    s.start(...)
-        - take file list, path, generator
-        - wrap senders around net eps
-        - add senders to exec
-        - for each file, open, create reader
-            - add reader(s) to exec
-            - get next reader when current completes or current file size < thresh
-
-    --
-    auto s = rxsession(config)
-        - create net eps
-    [awaitXferReq]
-    s.start(...)
-        - take file map arg
-        - wrap receivers around net eps
-        - add receivers to exec
-        - for reach file, open, add to vec
-        - wrap writer(s) around vec
-        - add writer to exec
-
-    s.runonce
+++statsMgr().stats(fd|id).stat;
 
 --
+
 - rx to fill bufs
 - header inline w/data, padded
 - tail writes padded by reader/sender
