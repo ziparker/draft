@@ -93,7 +93,6 @@ list(APPEND DRAFTUTIL_SRC
     src/util/RxSession.cc
     src/util/ScopedMMap.cc
     src/util/Sender.cc
-    src/util/StatsPublisher.cc
     src/util/TaskPool.cc
     src/util/ThreadExecutor.cc
     src/util/TxSession.cc
@@ -140,7 +139,7 @@ endif ()
 add_executable(draft ${DRAFTCLI_SRC})
 target_link_libraries(draft PRIVATE draftutil spdlog::spdlog)
 
-add_executable(ui ui.cc)
+add_executable(ui src/ui.cc)
 target_link_libraries(ui PRIVATE draftutil spdlog::spdlog ncurses)
 
 if (DRAFT_ENABLE_TESTS)
