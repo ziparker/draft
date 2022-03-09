@@ -262,13 +262,13 @@ int recv(int argc, char **argv)
 
 namespace {
 
-void updateDisplay(draft::ui::ProgressDisplay &disp)
+void updateDisplay(draft::ui::ProgressDisplay &disp, const std::string &label)
 {
     using namespace draft::util;
 
     const auto &stats = statsMgr().get();
 
-    disp.update("global"
+    disp.update(label
         , static_cast<double>(stats.netByteCount) / static_cast<double>(stats.fileByteCount));
 
     disp.update();
@@ -279,6 +279,8 @@ void updateDisplay(draft::ui::ProgressDisplay &disp)
 int send(int argc, char **argv)
 {
     using namespace draft::util;
+
+    static constexpr auto GlobalDisplayLabel = "tx progress";
 
     const auto opts = parseOptions(argc, argv);
     const auto &path = opts.session.pathRoot;
@@ -302,14 +304,14 @@ int send(int argc, char **argv)
     if (opts.showProgress)
     {
         disp.init();
-        disp.add("global");
+        disp.add("tx progress");
     }
 
     auto deadline = Clock::now();
     while (!done_ && sess.runOnce())
     {
         if (opts.showProgress)
-            updateDisplay(disp);
+            updateDisplay(disp, GlobalDisplayLabel);
 
         std::this_thread::sleep_until(deadline);
 
@@ -317,7 +319,7 @@ int send(int argc, char **argv)
     }
 
     if (opts.showProgress)
-        updateDisplay(disp);
+        updateDisplay(disp, GlobalDisplayLabel);
 
     spdlog::info("ending tx session.");
 
