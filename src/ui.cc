@@ -45,7 +45,7 @@ int main()
             p.update("bar baz path", barPct += .05);
             updateTime = now + 1s;
 
-            p.remove("bar baz path");
+            p.remove("baz");
         }
 
         p.update();

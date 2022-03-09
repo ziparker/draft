@@ -134,7 +134,7 @@ public:
     static constexpr const char Chars[] = "|/-\\";
 
     WhirlyState():
-        updateTime_{Clock::now() + 250ms}
+        updateTime_{Clock::now() + 150ms}
     {
     }
 
@@ -145,7 +145,7 @@ public:
         if (now < updateTime_)
             return;
 
-        updateTime_ = now + 250ms;
+        updateTime_ = now + 150ms;
 
         ++idx_;
 
@@ -156,6 +156,11 @@ public:
     char get() const noexcept
     {
         return Chars[idx_];
+    }
+
+    void reset()
+    {
+        idx_ = 0;
     }
 
 private:
@@ -212,6 +217,12 @@ public:
         unsigned row = 1;
         for (auto &[name, conf] : lineMap_)
         {
+            if (conf.pct >= 1.0)
+            {
+                conf.startChar.reset();
+                conf.endChar.reset();
+            }
+
             std::cout <<
                 term::CursorPosition{row, 0} <<
                 term::EraseLine{ } <<

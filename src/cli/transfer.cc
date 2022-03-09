@@ -68,15 +68,17 @@ void installSigHandler()
 struct Options
 {
     draft::util::SessionConfig session;
+    bool showProgress{ };
 };
 
 Options parseOptions(int argc, char **argv)
 {
-    static constexpr const char *shortOpts = "hnp:s:t:";
+    static constexpr const char *shortOpts = "hp:Ps:t:";
     static constexpr struct option longOpts[] = {
         {"help", no_argument, nullptr, 'h'},
         {"nodirect", no_argument, nullptr, 'n'},
         {"path", required_argument, nullptr, 'p'},
+        {"progress", no_argument, nullptr, 'P'},
         {"service", required_argument, nullptr, 's'},
         {"target", required_argument, nullptr, 't'},
         {nullptr, 0, nullptr, 0}
@@ -87,7 +89,7 @@ Options parseOptions(int argc, char **argv)
 
     const auto usage = [argv] {
             spdlog::info(
-                "usage: {} (send|recv) [-h][-n][-p <path>][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
+                "usage: {} (send|recv) [-h][-p <path>][-P][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
                 , ::basename(argv[0]));
         };
 
@@ -105,6 +107,10 @@ Options parseOptions(int argc, char **argv)
                 break;
             case 'p':
                 opts.session.pathRoot = optarg;
+                break;
+            case 'P':
+                opts.showProgress = true;
+                spdlog::set_level(spdlog::level::off);
                 break;
             case 's':
                 opts.session.service = draft::util::parseTarget(optarg);
@@ -241,9 +247,6 @@ int recv(int argc, char **argv)
     auto deadline = Clock::now();
     while (!done_ && sess.runOnce())
     {
-        spdlog::info("wait time: {:.3f}"
-            , Duration(Clock::now() - deadline).count());
-
         std::this_thread::sleep_until(deadline);
 
         deadline = Clock::now() + 100ms;
@@ -255,6 +258,22 @@ int recv(int argc, char **argv)
     dumpStats(stats());
 
     return 0;
+}
+
+namespace {
+
+void updateDisplay(draft::ui::ProgressDisplay &disp)
+{
+    using namespace draft::util;
+
+    const auto &stats = statsMgr().get();
+
+    disp.update("global"
+        , static_cast<double>(stats.netByteCount) / static_cast<double>(stats.fileByteCount));
+
+    disp.update();
+}
+
 }
 
 int send(int argc, char **argv)
@@ -280,18 +299,25 @@ int send(int argc, char **argv)
     sess.start(path);
 
     auto disp = draft::ui::ProgressDisplay{ };
-    disp.add("global");
+    if (opts.showProgress)
+    {
+        disp.init();
+        disp.add("global");
+    }
 
     auto deadline = Clock::now();
     while (!done_ && sess.runOnce())
     {
-        spdlog::info("wait time: {:.3f}"
-            , Duration(Clock::now() - deadline).count());
+        if (opts.showProgress)
+            updateDisplay(disp);
 
         std::this_thread::sleep_until(deadline);
 
         deadline = Clock::now() + 100ms;
     }
+
+    if (opts.showProgress)
+        updateDisplay(disp);
 
     spdlog::info("ending tx session.");
 
