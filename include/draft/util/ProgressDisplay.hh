@@ -32,6 +32,7 @@
 #include <memory>
 #include <system_error>
 
+#include <math.h>
 #include <sys/ioctl.h>
 
 #include "Stats.hh"
@@ -47,12 +48,14 @@ struct ClearScreen { };
 struct CursorHome { };
 struct CursorUp { };
 struct CursorDown { };
-struct CursorRight { };
+struct CursorRight { size_t cols{ }; };
 struct CursorLeft { };
-struct CursorBeginDown { unsigned lines{ }; };
+struct CursorCol { size_t col{ }; };
+struct CursorBeginDown { size_t lines{ }; };
 struct CursorBeginUp { };
 
 struct EraseLine { };
+struct EraseCursorToEnd { };
 
 struct WinSize
 {
@@ -80,14 +83,29 @@ inline std::ostream &operator<<(std::ostream &s, const CursorHome &)
     return s << "\x1b[H";
 }
 
+inline std::ostream &operator<<(std::ostream &s, const CursorRight &c)
+{
+    return s << "\x1b[" << c.cols << "C";
+}
+
 inline std::ostream &operator<<(std::ostream &s, const CursorBeginDown &c)
 {
     return s << "\x1b[" << c.lines << "E";
 }
 
+inline std::ostream &operator<<(std::ostream &s, const CursorCol &c)
+{
+    return s << "\x1b[" << c.col << "G";
+}
+
 inline std::ostream &operator<<(std::ostream &s, const EraseLine &)
 {
     return s << "\x1b[2K";
+}
+
+inline std::ostream &operator<<(std::ostream &s, const EraseCursorToEnd &)
+{
+    return s << "\x1b[1J";
 }
 
 }
@@ -102,12 +120,56 @@ struct Progress
     float pct{ };
 };
 
+using namespace std::chrono_literals;
+
+struct WhirlyState
+{
+public:
+    static constexpr const char Chars[] = "|/-\\";
+
+    WhirlyState():
+        updateTime_{Clock::now() + 250ms}
+    {
+    }
+
+    void tick()
+    {
+        const auto now = Clock::now();
+
+        if (now < updateTime_)
+            return;
+
+        updateTime_ = now + 250ms;
+
+        ++idx_;
+
+        if (idx_ >= sizeof(Chars) - 1)
+            idx_ = 0;
+    }
+
+    char get() const noexcept
+    {
+        return Chars[idx_];
+    }
+
+private:
+    using Clock = std::chrono::steady_clock;
+
+    Clock::time_point updateTime_;
+    size_t idx_{ };
+};
+
 inline std::ostream &operator<<(std::ostream &s, const Progress &p)
 {
     const size_t len = p.startCol < p.endCol ? p.endCol - p.startCol : 0;
-    const auto meter = std::string(len, '=');
 
-    return s << "\x1b[" << p.row << ";" << p.startCol << 'H' << meter;
+    auto pctLen = static_cast<size_t>(std::round(len * p.pct));
+    pctLen = std::clamp(pctLen, size_t{ }, len);
+
+    const auto meter = std::string(pctLen, '=');
+
+    return s << "\x1b[" << p.row << ";" << p.startCol << 'H' << meter <<
+        term::CursorCol(p.startCol + len);
 }
 
 }
@@ -123,8 +185,11 @@ public:
 
     struct LineConfig
     {
+        io::WhirlyState startChar{ }, endChar{ };
         float pct{ };
         unsigned row{ };
+        unsigned startCol{ };
+        unsigned endCol{ };
         LineType type{ };
     };
 
@@ -139,8 +204,21 @@ public:
     {
         const auto winSz = term::winSize();
 
-        for (const auto &[name, conf] : lineMap_)
-            std::cout << io::Progress{10, winSz.cols, conf.row, conf.pct};
+        for (auto &[name, conf] : lineMap_)
+        {
+            std::cout <<
+                term::CursorHome{ } <<
+                name <<
+                term::CursorRight{name.size() + 2} <<
+                conf.startChar.get() <<
+                io::Progress{10, std::min(winSz.cols, conf.endCol), conf.row, conf.pct} <<
+                conf.endChar.get() <<
+                term::CursorBeginDown{1} <<
+                term::EraseCursorToEnd{ };
+
+            conf.startChar.tick();
+            conf.endChar.tick();
+        }
     }
 
     void update(const std::string &key, float pct)
@@ -148,8 +226,18 @@ public:
         lineMap_[key].pct = pct;
     }
 
+    void add(const std::string &key, float pct)
+    {
+        auto &conf = lineMap_[key];
+        conf.pct = std::clamp(pct, 0.0f, 1.0f);
+        conf.row = rows_++;
+        conf.startCol = key.size() + 1 + 2;
+        conf.endCol = 120;
+    }
+
 private:
     std::map<std::string, LineConfig> lineMap_;
+    unsigned rows_{ };
     bool updateWinSz_{ };
 };
 

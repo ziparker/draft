@@ -22,6 +22,8 @@ void handleSig(int)
 int main()
 {
     using namespace std::chrono_literals;
+    using Clock = std::chrono::steady_clock;
+
     namespace util = draft::util;
 
     signal(SIGINT, handleSig);
@@ -29,10 +31,18 @@ int main()
     auto p = draft::ui::ProgressDisplay{ };
     p.init();
 
-    p.update("foo", 0);
+    p.add("foo", 0);
 
+    auto updateTime = Clock::now() + 1s;
+    float fooPct{ };
     while (!done_)
     {
+        if (auto now = Clock::now(); now > updateTime)
+        {
+            p.update("foo", fooPct += .1);
+            updateTime = now + 1s;
+        }
+
         p.update();
         std::this_thread::sleep_for(100ms);
     }
