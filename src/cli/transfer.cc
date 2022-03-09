@@ -32,6 +32,7 @@
 #include <sys/stat.h>
 
 #include <draft/util/InfoReceiver.hh>
+#include <draft/util/ProgressDisplay.hh>
 #include <draft/util/RxSession.hh>
 #include <draft/util/Stats.hh>
 #include <draft/util/TxSession.hh>
@@ -277,6 +278,9 @@ int send(int argc, char **argv)
 
     spdlog::info("starting tx session.");
     sess.start(path);
+
+    auto disp = draft::ui::ProgressDisplay{ };
+    disp.add("global");
 
     auto deadline = Clock::now();
     while (!done_ && sess.runOnce())

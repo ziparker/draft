@@ -219,7 +219,9 @@ public:
                 term::CursorRight{2} <<
                 conf.startChar.get() <<
                 io::Progress{conf.startCol, std::min(winSz.cols, conf.endCol), row, conf.pct} <<
-                conf.endChar.get();
+                conf.endChar.get() <<
+                term::CursorBeginDown{0} <<
+                term::EraseLine{ };
 
             conf.startChar.tick();
             conf.endChar.tick();
@@ -243,6 +245,15 @@ public:
         // leave room for space + start char.
         conf.startCol = key.size() + 2;
         conf.endCol = 120;
+    }
+
+    void remove(const std::string &key)
+    {
+        lineMap_.erase(key);
+
+        std::cout <<
+            term::CursorPosition{lineMap_.size(), 0} <<
+            term::EraseLine{ };
     }
 
 private:
