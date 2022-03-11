@@ -241,6 +241,19 @@ public:
         }
 
         std::cout << term::CursorBeginDown{1};
+        std::cout << "\nETA: " << std::setprecision(3) << std::fixed << globalEta_ << " s";
+
+        std::cout << term::CursorBeginDown{1};
+    }
+
+    void updateBandwidth(double bps)
+    {
+        globalBw_ = bps;
+    }
+
+    void updateEta(double sec)
+    {
+        globalEta_ = sec;
     }
 
     void update(const std::string &key, float pct)
