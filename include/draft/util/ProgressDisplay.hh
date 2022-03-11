@@ -54,6 +54,8 @@ struct CursorLeft { };
 struct CursorCol { size_t col{ }; };
 struct CursorBeginDown { size_t lines{ }; };
 struct CursorBeginUp { };
+struct SaveCursorPosition { };
+struct RestoreCursorPosition { };
 
 struct EraseLine { };
 struct EraseCursorToEnd { };
@@ -97,6 +99,16 @@ inline std::ostream &operator<<(std::ostream &s, const CursorRight &c)
 inline std::ostream &operator<<(std::ostream &s, const CursorBeginDown &c)
 {
     return s << "\x1b[" << c.lines << 'E';
+}
+
+inline std::ostream &operator<<(std::ostream &s, const SaveCursorPosition &)
+{
+    return s << "\x1b[s";
+}
+
+inline std::ostream &operator<<(std::ostream &s, const RestoreCursorPosition &)
+{
+    return s << "\x1b[u";
 }
 
 inline std::ostream &operator<<(std::ostream &s, const CursorCol &c)
@@ -205,14 +217,16 @@ public:
 
     void init()
     {
-        std::cout <<
-            std::unitbuf <<
-            term::ClearScreen{ } << term::CursorHome{ };
+        std::cout << std::unitbuf;
     }
 
     void update()
     {
         const auto winSz = term::winSize();
+
+        std::cout <<
+            term::CursorCol{0} <<
+            term::SaveCursorPosition{ };
 
         unsigned row = 1;
         for (auto &[name, conf] : lineMap_)
@@ -224,15 +238,13 @@ public:
             }
 
             std::cout <<
-                term::CursorPosition{row, 0} <<
                 term::EraseLine{ } <<
                 name <<
                 term::CursorRight{2} <<
                 conf.startChar.get() <<
                 io::Progress{conf.startCol, std::min(winSz.cols, conf.endCol), row, conf.pct} <<
                 conf.endChar.get() <<
-                term::CursorBeginDown{0} <<
-                term::EraseLine{ };
+                term::CursorBeginDown{1};
 
             conf.startChar.tick();
             conf.endChar.tick();
@@ -240,7 +252,9 @@ public:
             ++row;
         }
 
-        std::cout << term::CursorBeginDown{1};
+        std::cout <<
+            term::EraseLine{ } <<
+            term::RestoreCursorPosition{ };
     }
 
     void update(const std::string &key, float pct)
