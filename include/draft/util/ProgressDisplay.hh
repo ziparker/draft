@@ -134,7 +134,6 @@ struct Progress
 {
     unsigned startCol{ };
     unsigned endCol{ };
-    unsigned row{ };
     float pct{ };
 };
 
@@ -228,7 +227,6 @@ public:
             term::CursorCol{0} <<
             term::SaveCursorPosition{ };
 
-        unsigned row = 1;
         for (auto &[name, conf] : lineMap_)
         {
             if (conf.pct >= 1.0)
@@ -242,14 +240,12 @@ public:
                 name <<
                 term::CursorRight{2} <<
                 conf.startChar.get() <<
-                io::Progress{conf.startCol, std::min(winSz.cols, conf.endCol), row, conf.pct} <<
+                io::Progress{conf.startCol, std::min(winSz.cols, conf.endCol), conf.pct} <<
                 conf.endChar.get() <<
                 term::CursorBeginDown{1};
 
             conf.startChar.tick();
             conf.endChar.tick();
-
-            ++row;
         }
 
         std::cout <<
