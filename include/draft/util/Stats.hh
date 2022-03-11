@@ -28,8 +28,11 @@
 #define __DRAFT_UTIL_STATS_HH__
 
 #include <atomic>
+#include <chrono>
 #include <optional>
 #include <vector>
+
+#include <spdlog/spdlog.h>
 
 namespace draft::util {
 
@@ -66,21 +69,55 @@ struct StatsManager
     std::vector<Stats> fileStats;
 };
 
-class StatsHandler
+template <size_t Size>
+struct BandwidthMonitor
 {
-public:
-    StatsHandler() = default;
-    StatsHandler(const StatsHandler &) = delete;
-    StatsHandler &operator=(const StatsHandler &) = delete;
-    virtual ~StatsHandler() = default;
+    using Clock = std::chrono::steady_clock;
+    using Duration = std::chrono::duration<double>;
 
-    void handleStats(const Stats &globalStats, const std::vector<Stats> &fileStats)
+    struct Sample
     {
-        handleStatsPrivate(globalStats, fileStats);
+        Clock::time_point time{ };
+        size_t value{ };
+    };
+
+    double update(size_t value)
+    {
+        const auto now = Clock::now();
+        const auto sample = Sample{now, value};
+
+        const auto dt = Duration(now - samples_[head_].time).count();
+
+        if (dt <= 0.0)
+            return avg_;
+
+        if (samples_[head_].time != Clock::time_point{ })
+            avg_ = static_cast<double>(value - samples_[head_].value) / dt;
+
+        samples_[head_] = sample;
+
+        if (++head_ >= samples_.size())
+            head_ = 0;
+
+        return avg_;
     }
 
-private:
-    virtual void handleStatsPrivate(const Stats &globalStats, const std::vector<Stats> &fileStats) = 0;
+    double dataRate() const noexcept
+    {
+        return avg_;
+    }
+
+    double etaSec(size_t totalLen) const noexcept
+    {
+        if (avg_ <= 0.0 || totalLen < samples_[head_].value)
+            return 0.0;
+
+        return (totalLen - samples_[head_].value) / avg_;
+    }
+
+    std::array<Sample, Size> samples_{ };
+    size_t head_{ };
+    double avg_{ };
 };
 
 inline StatsManager &statsMgr()

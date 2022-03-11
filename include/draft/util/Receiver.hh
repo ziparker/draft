@@ -47,7 +47,7 @@ private:
     bool waitData(std::stop_token stopToken);
 
     int readHeader();
-    bool read();
+    int read();
 
     BufferPoolPtr pool_{ };
     BufQueue *queue_{ };
