@@ -263,7 +263,7 @@ int recv(int argc, char **argv)
 namespace {
 
 template <size_t Size>
-void updateDisplay(draft::ui::ProgressDisplay &disp, const std::string &label, BandwidthMonitor<BWSize> &bw)
+void updateDisplay(draft::ui::ProgressDisplay &disp, const std::string &label, draft::util::BandwidthMonitor<Size> &bw)
 {
     using namespace draft::util;
 
@@ -271,8 +271,6 @@ void updateDisplay(draft::ui::ProgressDisplay &disp, const std::string &label, B
 
     disp.update(label
         , static_cast<double>(stats.netByteCount) / static_cast<double>(stats.fileByteCount));
-
-    const auto &stats = statsMgr().get();
 
     const auto globalBw = bw.update(stats.netByteCount);
     disp.updateBandwidth(globalBw);
@@ -322,8 +320,6 @@ int send(int argc, char **argv)
     {
         if (opts.showProgress)
             updateDisplay(disp, GlobalDisplayLabel, bwMon);
-        else
-            spdlog::info("bw: {:.3f} B/s\teta: {:.3f} s", bw, eta);
 
         std::this_thread::sleep_until(deadline);
 
@@ -331,7 +327,10 @@ int send(int argc, char **argv)
     }
 
     if (opts.showProgress)
-        updateDisplay(disp, GlobalDisplayLabel);
+    {
+        updateDisplay(disp, GlobalDisplayLabel, bwMon);
+        disp.complete();
+    }
 
     spdlog::info("ending tx session.");
 

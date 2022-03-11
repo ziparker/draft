@@ -96,6 +96,9 @@ bool Receiver::waitData(std::stop_token stopToken)
 
     const auto readStat = read();
 
+    if (readStat < 0)
+        return false;
+
     if (readStat > 0)
     {
         spdlog::trace("receiver put {} -> id {}"
@@ -123,9 +126,6 @@ bool Receiver::waitData(std::stop_token stopToken)
         offset_ = 0;
     }
 
-    if (-EOF == readStat)
-        return false;
-
     return true;
 }
 
@@ -147,7 +147,7 @@ int Receiver::readHeader()
         throw std::system_error(errno, std::system_category(), "read");
 
     if (!len)
-        return EOF;
+        return -EOF;
 
     offset_ += static_cast<size_t>(len);
 

@@ -54,6 +54,8 @@ struct CursorLeft { };
 struct CursorCol { size_t col{ }; };
 struct CursorBeginDown { size_t lines{ }; };
 struct CursorBeginUp { };
+struct SaveCursorPosition { };
+struct RestoreCursorPosition { };
 
 struct EraseLine { };
 struct EraseCursorToEnd { };
@@ -99,6 +101,16 @@ inline std::ostream &operator<<(std::ostream &s, const CursorBeginDown &c)
     return s << "\x1b[" << c.lines << 'E';
 }
 
+inline std::ostream &operator<<(std::ostream &s, const SaveCursorPosition &)
+{
+    return s << "\x1b[s";
+}
+
+inline std::ostream &operator<<(std::ostream &s, const RestoreCursorPosition &)
+{
+    return s << "\x1b[u";
+}
+
 inline std::ostream &operator<<(std::ostream &s, const CursorCol &c)
 {
     return s << "\x1b[" << c.col << 'G';
@@ -122,7 +134,6 @@ struct Progress
 {
     unsigned startCol{ };
     unsigned endCol{ };
-    unsigned row{ };
     float pct{ };
 };
 
@@ -205,16 +216,17 @@ public:
 
     void init()
     {
-        std::cout <<
-            std::unitbuf <<
-            term::ClearScreen{ } << term::CursorHome{ };
+        std::cout << std::unitbuf;
     }
 
     void update()
     {
         const auto winSz = term::winSize();
 
-        unsigned row = 1;
+        std::cout <<
+            term::CursorCol{0} <<
+            term::SaveCursorPosition{ };
+
         for (auto &[name, conf] : lineMap_)
         {
             if (conf.pct >= 1.0)
@@ -224,26 +236,25 @@ public:
             }
 
             std::cout <<
-                term::CursorPosition{row, 0} <<
                 term::EraseLine{ } <<
                 name <<
                 term::CursorRight{2} <<
                 conf.startChar.get() <<
-                io::Progress{conf.startCol, std::min(winSz.cols, conf.endCol), row, conf.pct} <<
+                io::Progress{conf.startCol, std::min(winSz.cols, conf.endCol), conf.pct} <<
                 conf.endChar.get() <<
-                term::CursorBeginDown{0} <<
-                term::EraseLine{ };
+                term::CursorBeginDown{1};
 
             conf.startChar.tick();
             conf.endChar.tick();
-
-            ++row;
         }
 
         std::cout << term::CursorBeginDown{1};
         std::cout << "\nETA: " << std::setprecision(3) << std::fixed << globalEta_ << " s";
 
-        std::cout << term::CursorBeginDown{1};
+        std::cout <<
+            term::CursorBeginDown{1} <<
+            term::EraseLine{ } <<
+            term::RestoreCursorPosition{ };
     }
 
     void updateBandwidth(double bps)
@@ -253,7 +264,7 @@ public:
 
     void updateEta(double sec)
     {
-        globalEta_ = sec;
+        globalEta_ = .7 * globalEta_ + .3 * sec;
     }
 
     void update(const std::string &key, float pct)
@@ -280,9 +291,16 @@ public:
             term::EraseLine{ };
     }
 
+    void complete()
+    {
+        std::cout << term::CursorBeginDown(2) << "\n";
+    }
+
 private:
     std::map<std::string, LineConfig> lineMap_;
     unsigned rows_{ };
+    double globalEta_{ };
+    double globalBw_{ };
     bool updateWinSz_{ };
 };
 
