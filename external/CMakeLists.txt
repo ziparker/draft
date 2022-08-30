@@ -29,18 +29,20 @@ project(draft_external VERSION 0.0.1)
 
 include(ExternalProject)
 
-ExternalProject_Add(
-    c-blosc2
-    GIT_REPOSITORY https://github.com/Blosc/c-blosc2.git
-    GIT_TAG v2.0.3
-    CMAKE_ARGS
-        -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
-        -DBUILD_SHARED=${BUILD_SHARED_LIBS}
-        -DBUILD_TESTS=OFF
-        -DBUILD_FUZZERS=OFF
-        -DBUILD_BENCHMARKS=OFF
-        -DBUILD_EXAMPLES=OFF
-        -DBUILD_PLUGINS=OFF)
+if (DRAFT_ENABLE_CBLOSC)
+    ExternalProject_Add(
+        c-blosc2
+        GIT_REPOSITORY https://github.com/Blosc/c-blosc2.git
+        GIT_TAG v2.0.3
+        CMAKE_ARGS
+            -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
+            -DBUILD_SHARED=${BUILD_SHARED_LIBS}
+            -DBUILD_TESTS=OFF
+            -DBUILD_FUZZERS=OFF
+            -DBUILD_BENCHMARKS=OFF
+            -DBUILD_EXAMPLES=OFF
+            -DBUILD_PLUGINS=OFF)
+endif ()
 
 ExternalProject_Add(
     nlohmann_json
@@ -57,7 +59,7 @@ if (DRAFT_ENABLE_CUDA)
     ExternalProject_Add(
         nvcomp
         GIT_REPOSITORY https://github.com/NVIDIA/nvcomp.git
-        GIT_TAG v2.0.2
+        GIT_TAG v2.2.0
         CMAKE_ARGS
             -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX})
 endif ()

@@ -25,6 +25,8 @@ durable, resumable, asynchronous file transfer
     - [ ] bind to ANY
     - [ ] stats
     - [ ] progress
+        - ref rsync:
+            11,467,096,064  68%   24.96MB/s    0:03:26  kk
         - session?
     - [ ] tui
     - [ ] configurable buf size, r/w/tx/rx thd counts

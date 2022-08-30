@@ -122,6 +122,9 @@ target_link_libraries(draftutil
     PRIVATE spdlog::spdlog
     PUBLIC nlohmann_json::nlohmann_json)
 
+add_executable(draft ${DRAFTCLI_SRC})
+target_link_libraries(draft PRIVATE draftutil spdlog::spdlog)
+
 if (blosc2_LIBRARY)
     target_compile_definitions(draftutil PUBLIC DRAFT_HAVE_COMPRESS=1)
     message(STATUS "draft: including compression commands.")
@@ -133,11 +136,9 @@ if (nvcomp_LIBRARY)
     target_compile_definitions(draftutil PUBLIC DRAFT_HAVE_CUDA=1)
     message(STATUS "draft: including nvidia compression command.")
     target_link_libraries(draftutil PRIVATE ${nvcomp_LIBRARY} ${cufile_LIBRARY} CUDA::cudart)
-    target_include_directories(draftutil PRIVATE ${nvcomp_INCLUDE_DIRS} ${cufile_INCLUDE_DIRS})
+    target_include_directories(draftutil SYSTEM PRIVATE ${nvcomp_INCLUDE_DIRS} ${cufile_INCLUDE_DIRS})
+    target_include_directories(draft SYSTEM PRIVATE ${cufile_INCLUDE_DIRS})
 endif ()
-
-add_executable(draft ${DRAFTCLI_SRC})
-target_link_libraries(draft PRIVATE draftutil spdlog::spdlog)
 
 if (DRAFT_ENABLE_TESTS)
     find_package(GTest REQUIRED)
