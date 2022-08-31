@@ -56,7 +56,7 @@ int Reader::operator()(std::stop_token stopToken)
         stats().diskByteCount += len;
 
         if (auto s = stats(fileId_))
-            s->get().diskByteCount += len;
+            s->diskByteCount += len;
 
         // keep trying to push this buffer onto the queue.
         //
@@ -70,7 +70,7 @@ int Reader::operator()(std::stop_token stopToken)
         ++stats().queuedBlockCount;
 
         if (auto s = stats(fileId_))
-            ++s->get().queuedBlockCount;
+            ++s->queuedBlockCount;
 
         segment_.offset += len;
     }

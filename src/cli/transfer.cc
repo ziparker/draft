@@ -32,6 +32,7 @@
 #include <sys/stat.h>
 
 #include <draft/util/InfoReceiver.hh>
+#include <draft/util/ProgressDisplay.hh>
 #include <draft/util/RxSession.hh>
 #include <draft/util/Stats.hh>
 #include <draft/util/TxSession.hh>
@@ -67,15 +68,17 @@ void installSigHandler()
 struct Options
 {
     draft::util::SessionConfig session;
+    bool showProgress{ };
 };
 
 Options parseOptions(int argc, char **argv)
 {
-    static constexpr const char *shortOpts = "hnp:s:t:";
+    static constexpr const char *shortOpts = "hp:Ps:t:";
     static constexpr struct option longOpts[] = {
         {"help", no_argument, nullptr, 'h'},
         {"nodirect", no_argument, nullptr, 'n'},
         {"path", required_argument, nullptr, 'p'},
+        {"progress", no_argument, nullptr, 'P'},
         {"service", required_argument, nullptr, 's'},
         {"target", required_argument, nullptr, 't'},
         {nullptr, 0, nullptr, 0}
@@ -86,7 +89,7 @@ Options parseOptions(int argc, char **argv)
 
     const auto usage = [argv] {
             spdlog::info(
-                "usage: {} (send|recv) [-h][-n][-p <path>][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
+                "usage: {} (send|recv) [-h][-p <path>][-P][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
                 , ::basename(argv[0]));
         };
 
@@ -104,6 +107,10 @@ Options parseOptions(int argc, char **argv)
                 break;
             case 'p':
                 opts.session.pathRoot = optarg;
+                break;
+            case 'P':
+                opts.showProgress = true;
+                spdlog::set_level(spdlog::level::off);
                 break;
             case 's':
                 opts.session.service = draft::util::parseTarget(optarg);
@@ -154,7 +161,7 @@ void updateFileStats(const std::vector<draft::util::FileInfo> &info)
             draft::util::stats().fileByteCount += item.status.size;
 
             if (auto s = draft::util::stats(item.id))
-                s->get().fileByteCount = item.status.size;
+                s->fileByteCount = item.status.size;
         }
     }
 }
@@ -210,6 +217,9 @@ namespace draft::cmd {
 
 using namespace std::chrono_literals;
 
+using Clock = std::chrono::steady_clock;
+using Duration = std::chrono::duration<double>;
+
 int recv(int argc, char **argv)
 {
     using namespace draft::util;
@@ -234,8 +244,13 @@ int recv(int argc, char **argv)
     spdlog::info("starting rx session.");
     sess.start(std::move(*req));
 
+    auto deadline = Clock::now();
     while (!done_ && sess.runOnce())
-        std::this_thread::sleep_for(100ms);
+    {
+        std::this_thread::sleep_until(deadline);
+
+        deadline = Clock::now() + 100ms;
+    }
 
     spdlog::info("ending rx session.");
     sess.finish();
@@ -245,9 +260,33 @@ int recv(int argc, char **argv)
     return 0;
 }
 
+namespace {
+
+void updateDisplay(draft::ui::ProgressDisplay &disp, const std::string &label, draft::util::BandwidthMonitor &bw)
+{
+    using namespace draft::util;
+
+    const auto &stats = statsMgr().get();
+
+    disp.update(label
+        , static_cast<double>(stats.netByteCount) / static_cast<double>(stats.fileByteCount));
+
+    const auto globalBw = bw.update(stats.netByteCount);
+    disp.updateBandwidth(globalBw);
+
+    const auto globalEta = bw.etaSec(stats.fileByteCount);
+    disp.updateEta(globalEta);
+
+    disp.update();
+}
+
+}
+
 int send(int argc, char **argv)
 {
     using namespace draft::util;
+
+    static constexpr auto GlobalDisplayLabel = "tx progress";
 
     const auto opts = parseOptions(argc, argv);
     const auto &path = opts.session.pathRoot;
@@ -267,8 +306,30 @@ int send(int argc, char **argv)
     spdlog::info("starting tx session.");
     sess.start(path);
 
+    auto bwMon = BandwidthMonitor{ };
+    auto disp = draft::ui::ProgressDisplay{ };
+    if (opts.showProgress)
+    {
+        disp.init();
+        disp.add("tx progress");
+    }
+
+    auto deadline = Clock::now();
     while (!done_ && sess.runOnce())
-        std::this_thread::sleep_for(100ms);
+    {
+        if (opts.showProgress)
+            updateDisplay(disp, GlobalDisplayLabel, bwMon);
+
+        std::this_thread::sleep_until(deadline);
+
+        deadline = Clock::now() + 100ms;
+    }
+
+    if (opts.showProgress)
+    {
+        updateDisplay(disp, GlobalDisplayLabel, bwMon);
+        disp.complete();
+    }
 
     spdlog::info("ending tx session.");
 

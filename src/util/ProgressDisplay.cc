@@ -1,5 +1,4 @@
-/**
- * @file Receiver.hh
+/* @file Stats.cc
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
@@ -24,41 +23,29 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_UTIL_RECEIVER_HH__
-#define __DRAFT_UTIL_RECEIVER_HH__
+#include <algorithm>
 
-#include <stop_token>
-
-#include "Util.hh"
+#include <draft/util/ProgressDisplay.hh>
 
 namespace draft::util {
 
-class Receiver
+ProgressDisplay::ProgressDisplay(const std::vector<FileInfo> &info)
 {
-public:
-    using Buffer = BufferPool::Buffer;
-
-    Receiver(ScopedFd fd, BufQueue &queue);
-
-    bool runOnce(std::stop_token stopToken);
-
-private:
-    int waitConnect();
-    bool waitData(std::stop_token stopToken);
-
-    int readHeader();
-    int read();
-
-    BufferPoolPtr pool_{ };
-    BufQueue *queue_{ };
-    wire::ChunkHeader header_{ };
-    Buffer buf_{ };
-    size_t offset_{ };
-    ScopedFd fd_{ };
-    ScopedFd svcFd_{ };
-    bool haveHeader_{ };
-};
-
+    registerFiles(info);
 }
 
-#endif
+void ProgressDisplay::handleStatsPrivate(const Stats &, const std::vector<Stats> &)
+{
+}
+
+void ProgressDisplay::registerFiles(const std::vector<FileInfo> &infos)
+{
+    files_.resize(infos.size());
+
+    std::transform(begin(infos), end(infos), begin(files_),
+        [](const FileInfo &info) {
+            return FileEntry{info.path, info.status.size, info.id};
+        });
+}
+
+}

@@ -94,7 +94,12 @@ bool Receiver::waitData(std::stop_token stopToken)
         offset_ = 0;
     }
 
-    if (read())
+    const auto readStat = read();
+
+    if (readStat < 0)
+        return false;
+
+    if (readStat > 0)
     {
         spdlog::trace("receiver put {} -> id {}"
             , header_.payloadLength
@@ -115,7 +120,7 @@ bool Receiver::waitData(std::stop_token stopToken)
         ++stats().queuedBlockCount;
 
         if (auto s = stats(header_.fileId))
-            ++s->get().queuedBlockCount;
+            ++s->queuedBlockCount;
 
         haveHeader_ = false;
         offset_ = 0;
@@ -168,24 +173,27 @@ int Receiver::readHeader()
     return 1;
 }
 
-bool Receiver::read()
+int Receiver::read()
 {
     auto len = ::read(fd_.get(), buf_.uint8Data() + offset_, header_.payloadLength - offset_);
 
     if (len < 0)
         throw std::system_error(errno, std::system_category(), "read");
 
+    if (!len)
+        return EOF;
+
     stats().netByteCount += len;
 
     if (auto s = stats(header_.fileId))
-        s->get().netByteCount += len;
+        s->netByteCount += len;
 
     offset_ += static_cast<size_t>(len);
 
     if (offset_ >= header_.payloadLength)
-        return true;
+        return 1;
 
-    return false;
+    return 0;
 }
 
 }

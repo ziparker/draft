@@ -46,14 +46,14 @@ bool Sender::runOnce(std::stop_token stopToken)
         ++stats().dequeuedBlockCount;
 
         if (auto s = stats(desc->fileId))
-            ++s->get().dequeuedBlockCount;
+            ++s->dequeuedBlockCount;
 
         const auto len = write(std::move(*desc)) - sizeof(wire::ChunkHeader);
 
         stats().netByteCount += len;
 
         if (auto s = stats(desc->fileId))
-            s->get().netByteCount += len;
+            s->netByteCount += len;
     }
 
     return !stopToken.stop_requested();

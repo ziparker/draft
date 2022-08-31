@@ -132,28 +132,28 @@ The draft-rx namespace will contain the following interfaces:
 
 | interface | IP/netmask        | 
 |-----------|-------------------|
-| draft-rx0 | 10.77.2.101/24    |
-| draft-rx1 | 10.77.3.101/24    |
-| draft-rx2 | 10.77.4.101/24    |
+| draft-rx0 | 10.76.2.101/24    |
+| draft-rx1 | 10.76.3.101/24    |
+| draft-rx2 | 10.76.4.101/24    |
 
 The draft-tx namespace will contain the following interfaces:
 
 | interface | IP/netmask        | 
 |-----------|-------------------|
-| draft-tx0 | 10.77.2.100/24    |
-| draft-tx1 | 10.77.3.100/24    |
-| draft-tx2 | 10.77.4.100/24    |
+| draft-tx0 | 10.76.2.100/24    |
+| draft-tx1 | 10.76.3.100/24    |
+| draft-tx2 | 10.76.4.100/24    |
 
 To start the receiver, open a shell in the `draft-rx` namespace, and run the
 `draft recv` command:
 
 `sudo ip netns exec draft-rx bash`
-`# draft recv -s 10.77.2.101:5000 -t 10.77.2.101:5001 -t 10.77.3.101:5001 -t 10.77.4.101:5001`
+`# draft recv -s 10.76.2.101:5000 -t 10.76.2.101:5001 -t 10.76.3.101:5001 -t 10.76.4.101:5001`
 
 To start the sender, open a shell (without specifying any namespace) and run
 the `draft send` command.
 
-`draft send -s 10.77.2.101:5000 -t 10.77.2.101:5001 -t 10.77.3.101:5001 -t 10.77.4.101:5001 -p .`
+`draft send -s 10.76.2.101:5000 -t 10.76.2.101:5001 -t 10.76.3.101:5001 -t 10.76.4.101:5001 -p .`
 
 You may also reverse the roles, running send in the draft-rx namespace.
 

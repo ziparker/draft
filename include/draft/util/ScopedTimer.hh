@@ -1,5 +1,4 @@
-/**
- * @file Receiver.hh
+/* @file ScopedTimer.hh
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
@@ -24,39 +23,56 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_UTIL_RECEIVER_HH__
-#define __DRAFT_UTIL_RECEIVER_HH__
+#ifndef __DRAFT_UTIL_SCOPED_TIMER_HH__
+#define __DRAFT_UTIL_SCOPED_TIMER_HH__
 
-#include <stop_token>
-
-#include "Util.hh"
+#include <chrono>
+#include <functional>
+#include <string>
 
 namespace draft::util {
 
-class Receiver
+class ScopedTimer
 {
 public:
-    using Buffer = BufferPool::Buffer;
+    using SecCallback = std::function<void(double)>;
 
-    Receiver(ScopedFd fd, BufQueue &queue);
+    ScopedTimer():
+        start_(Clock::now())
+    {
+    }
 
-    bool runOnce(std::stop_token stopToken);
+    explicit ScopedTimer(SecCallback cb):
+        cb_(std::move(cb)),
+        start_(Clock::now())
+    {
+    }
+
+    ScopedTimer(const ScopedTimer &) = default;
+    ScopedTimer &operator=(const ScopedTimer &) = default;
+    ScopedTimer(ScopedTimer &&) = default;
+    ScopedTimer &operator=(ScopedTimer &&) = default;
+
+    ~ScopedTimer() noexcept
+    {
+        if (cb_)
+            cb_(elapsedSec());
+    }
+
+    double elapsedSec() const noexcept
+    {
+        if (start_ == Clock::time_point{ })
+            return 0.0;
+
+        return Duration(Clock::now() - start_).count();
+    }
 
 private:
-    int waitConnect();
-    bool waitData(std::stop_token stopToken);
+    using Clock = std::chrono::steady_clock;
+    using Duration = std::chrono::duration<double>;
 
-    int readHeader();
-    int read();
-
-    BufferPoolPtr pool_{ };
-    BufQueue *queue_{ };
-    wire::ChunkHeader header_{ };
-    Buffer buf_{ };
-    size_t offset_{ };
-    ScopedFd fd_{ };
-    ScopedFd svcFd_{ };
-    bool haveHeader_{ };
+    SecCallback cb_;
+    Clock::time_point start_;
 };
 
 }

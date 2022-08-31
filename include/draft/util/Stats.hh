@@ -28,7 +28,11 @@
 #define __DRAFT_UTIL_STATS_HH__
 
 #include <atomic>
+#include <chrono>
 #include <optional>
+#include <vector>
+
+#include <spdlog/spdlog.h>
 
 namespace draft::util {
 
@@ -53,16 +57,59 @@ struct StatsManager
         fileStats = std::vector<Stats>(size);
     }
 
-    std::optional<std::reference_wrapper<Stats>> get(unsigned id)
+    Stats *get(unsigned id)
     {
         if (id >= fileStats.size())
             return { };
 
-        return fileStats[id];
+        return &fileStats[id];
     }
 
     Stats globalStats;
     std::vector<Stats> fileStats;
+};
+
+struct BandwidthMonitor
+{
+    using Clock = std::chrono::steady_clock;
+    using Duration = std::chrono::duration<double>;
+
+    struct Sample
+    {
+        Clock::time_point time{ };
+        size_t value{ };
+    };
+
+    double update(size_t value)
+    {
+        const auto now = Clock::now();
+        const auto sample = Sample{now, value};
+
+        const auto dt = Duration(now - prevSample_.time).count();
+        const auto dv = value - prevSample_.value;
+
+        avg_ = .95 * avg_ + .05 * static_cast<double>(dv) / dt;
+
+        prevSample_ = sample;
+
+        return avg_;
+    }
+
+    double dataRate() const noexcept
+    {
+        return avg_;
+    }
+
+    double etaSec(size_t totalLen) const noexcept
+    {
+        if (avg_ <= 0.0 || totalLen < prevSample_.value)
+            return 0.0;
+
+        return (totalLen - prevSample_.value) / avg_;
+    }
+
+    Sample prevSample_{ };
+    double avg_{ };
 };
 
 inline StatsManager &statsMgr()

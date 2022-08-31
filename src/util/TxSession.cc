@@ -29,6 +29,7 @@
 #include <sys/stat.h>
 
 #include <draft/util/Reader.hh>
+#include <draft/util/ScopedTimer.hh>
 #include <draft/util/Sender.hh>
 #include <draft/util/ThreadExecutor.hh>
 #include <draft/util/TxSession.hh>
@@ -153,7 +154,7 @@ bool TxSession::startFile(const FileInfo &info)
 
     // try for a while to submit this reader.
     // we may time-out here if the network is bottlenecking things.
-    const auto deadline = Clock::now() + 200ms;
+    const auto deadline = Clock::now() + 50ms;
     while (!readExec_.cancelled() && Clock::now() < deadline)
     {
         const auto rateDeadline = Clock::now() + 1ms;

@@ -54,8 +54,8 @@ bool Writer::runOnce(std::stop_token stopToken)
 
         if (auto s = stats(desc->fileId))
         {
-            ++s->get().dequeuedBlockCount;
-            s->get().diskByteCount += len;
+            ++s->dequeuedBlockCount;
+            s->diskByteCount += len;
         }
     }
 
