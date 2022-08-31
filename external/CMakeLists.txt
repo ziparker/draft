@@ -72,3 +72,14 @@ ExternalProject_Add(
         -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
         -DSPDLOG_BUILD_SHARED=${BUILD_SHARED_LIBS}
         -DSPDLOG_INSTALL=ON)
+
+ExternalProject_Add(
+    xxhash
+    GIT_REPOSITORY https://github.com/Cyan4973/xxHash.git
+    GIT_TAG v0.8.1
+    CONFIGURE_COMMAND
+        ""
+    BUILD_COMMAND
+        make -C <SOURCE_DIR>
+    INSTALL_COMMAND
+        make -C <SOURCE_DIR> prefix=${CMAKE_INSTALL_PREFIX} install)
