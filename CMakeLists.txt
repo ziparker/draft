@@ -154,6 +154,9 @@ if (DRAFT_ENABLE_TESTS)
     add_executable(gtest_draft test/gtest_draft.cc)
     target_link_libraries(gtest_draft PRIVATE GTest::GTest GTest::Main draftutil)
 
+    add_executable(gtest_journal test/gtest_journal.cc)
+    target_link_libraries(gtest_journal PRIVATE GTest::GTest GTest::Main draftutil)
+
     add_executable(ui test/ui.cc)
     target_link_libraries(ui PRIVATE draftutil spdlog::spdlog)
 
