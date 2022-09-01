@@ -71,8 +71,11 @@ if (DRAFT_ENABLE_SANITIZERS)
     set(DRAFT_SANITIZER_LIBS asan ubsan)
 endif ()
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+
 find_package(nlohmann_json REQUIRED)
 find_package(spdlog REQUIRED)
+find_package(xxhash REQUIRED)
 
 find_library(blosc2_LIBRARY blosc2)
 find_path(blosc2_INCLUDE_DIRS blosc2.h)
@@ -86,6 +89,7 @@ find_path(nvcomp_INCLUDE_DIRS nvcomp.hpp)
 list(APPEND DRAFTUTIL_SRC
     src/util/Buffer.cc
     src/util/BufferPool.cc
+    src/util/Hasher.cc
     src/util/InfoReceiver.cc
     src/util/PollSet.cc
     src/util/Reader.cc
@@ -118,8 +122,10 @@ add_library(draftutil ${DRAFTUTIL_SRC})
 target_include_directories(draftutil PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
+target_include_directories(draftutil PRIVATE
+    ${xxhash_INCLUDE_DIRS})
 target_link_libraries(draftutil
-    PRIVATE spdlog::spdlog
+    PRIVATE spdlog::spdlog ${xxhash_LIBRARIES}
     PUBLIC nlohmann_json::nlohmann_json)
 
 add_executable(draft ${DRAFTCLI_SRC})
