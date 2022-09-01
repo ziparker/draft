@@ -132,9 +132,6 @@ target_link_libraries(draftutil
 add_executable(draft ${DRAFTCLI_SRC})
 target_link_libraries(draft PRIVATE draftutil spdlog::spdlog)
 
-add_executable(ui src/ui.cc)
-target_link_libraries(ui PRIVATE draftutil spdlog::spdlog ncurses)
-
 if (blosc2_LIBRARY)
     target_compile_definitions(draftutil PUBLIC DRAFT_HAVE_COMPRESS=1)
     message(STATUS "draft: including compression commands.")
@@ -156,6 +153,9 @@ if (DRAFT_ENABLE_TESTS)
 
     add_executable(gtest_draft test/gtest_draft.cc)
     target_link_libraries(gtest_draft PRIVATE GTest::GTest GTest::Main draftutil)
+
+    add_executable(ui test/ui.cc)
+    target_link_libraries(ui PRIVATE draftutil spdlog::spdlog)
 
     gtest_discover_tests(gtest_draft)
     enable_testing()
