@@ -1,5 +1,5 @@
 /**
- * @file TxSession.hh
+ * @file Hasher.hh
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
@@ -24,48 +24,28 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_UTIL_TX_SESSION_HH__
-#define __DRAFT_UTIL_TX_SESSION_HH__
+#ifndef __DRAFT_UTIL_HASHER_HH_
+#define __DRAFT_UTIL_HASHER_HH_
 
-#include <memory>
-#include <string>
-#include <vector>
+#include <stop_token>
 
-#include "TaskPool.hh"
-#include "ThreadExecutor.hh"
 #include "Util.hh"
 
 namespace draft::util {
 
-class TxSession
+class Hasher
 {
 public:
-    TxSession(SessionConfig conf);
-    ~TxSession() noexcept;
+    using Buffer = BufferPool::Buffer;
 
-    void start(const std::string &path);
-    void finish() noexcept;
+    explicit Hasher(BufQueue &queue);
 
-    bool runOnce();
+    bool runOnce(std::stop_token stopToken);
 
 private:
-    using file_info_iter_type = std::vector<FileInfo>::const_iterator;
+    uint64_t hash(const BDesc &desc);
 
-    file_info_iter_type nextFile(file_info_iter_type first, file_info_iter_type last);
-
-    bool startFile(const FileInfo &info);
-
-    WaitQueue<BDesc> queue_;
-    WaitQueue<BDesc> hashQueue_;
-    std::shared_ptr<BufferPool> pool_;
-    TaskPool readExec_;
-    std::vector<std::future<int>> readResults_;
-    ThreadExecutor sendExec_;
-    ThreadExecutor hashExec_;
-    std::vector<FileInfo> info_;
-    std::vector<FileInfo>::const_iterator fileIter_;
-    SessionConfig conf_;
-    std::vector<ScopedFd> targetFds_;
+    BufQueue *queue_{ };
 };
 
 }

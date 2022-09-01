@@ -43,6 +43,11 @@ public:
 
     int operator()(std::stop_token stopToken);
 
+    void setHashQueue(BufQueue &q)
+    {
+        hashQueue_ = &q;
+    }
+
 private:
     size_t read(Buffer &buf);
 
@@ -50,6 +55,7 @@ private:
     Segment segment_{ };
     BufferPoolPtr pool_{ };
     BufQueue *queue_{ };
+    BufQueue *hashQueue_{ };
     unsigned fileId_{ };
 };
 

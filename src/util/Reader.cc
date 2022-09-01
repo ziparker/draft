@@ -67,6 +67,12 @@ int Reader::operator()(std::stop_token stopToken)
         {
         }
 
+        if (hashQueue_ && !hashQueue_->put({buf, fileId_, segment_.offset, len}, 1ms))
+        {
+            spdlog::warn("unable to enqueue file {} offset {} len {} for hashing (queue full)."
+                , fileId_, segment_.offset, len);
+        }
+
         ++stats().queuedBlockCount;
 
         if (auto s = stats(fileId_))

@@ -1,5 +1,5 @@
 /**
- * @file TxSession.hh
+ * @file Hasher.cc
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
@@ -24,50 +24,60 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_UTIL_TX_SESSION_HH__
-#define __DRAFT_UTIL_TX_SESSION_HH__
+#include "xxhash.h"
 
-#include <memory>
-#include <string>
-#include <vector>
-
-#include "TaskPool.hh"
-#include "ThreadExecutor.hh"
-#include "Util.hh"
+#include <draft/util/Hasher.hh>
+#include <draft/util/ScopedTimer.hh>
+#include <draft/util/Stats.hh>
 
 namespace draft::util {
 
-class TxSession
+Hasher::Hasher(BufQueue &queue):
+    queue_(&queue)
 {
-public:
-    TxSession(SessionConfig conf);
-    ~TxSession() noexcept;
-
-    void start(const std::string &path);
-    void finish() noexcept;
-
-    bool runOnce();
-
-private:
-    using file_info_iter_type = std::vector<FileInfo>::const_iterator;
-
-    file_info_iter_type nextFile(file_info_iter_type first, file_info_iter_type last);
-
-    bool startFile(const FileInfo &info);
-
-    WaitQueue<BDesc> queue_;
-    WaitQueue<BDesc> hashQueue_;
-    std::shared_ptr<BufferPool> pool_;
-    TaskPool readExec_;
-    std::vector<std::future<int>> readResults_;
-    ThreadExecutor sendExec_;
-    ThreadExecutor hashExec_;
-    std::vector<FileInfo> info_;
-    std::vector<FileInfo>::const_iterator fileIter_;
-    SessionConfig conf_;
-    std::vector<ScopedFd> targetFds_;
-};
-
 }
 
-#endif
+bool Hasher::runOnce(std::stop_token stopToken)
+{
+    using namespace std::chrono_literals;
+
+    using Clock = std::chrono::steady_clock;
+
+    while (auto desc = queue_->get(Clock::now() + 1ms))
+    {
+        // TODO: maybe this for hashes?
+        //if (auto s = stats(desc->fileId))
+        //    ++s->dequeuedBlockCount;
+
+        if (!desc->buf)
+            continue;
+
+        auto digest = uint64_t{ };
+
+        {
+            auto timer = util::ScopedTimer{[&desc](double sec) {
+                    spdlog::info("xx3 file {} offset {} len {} - {:.06f} sec"
+                        , desc->fileId
+                        , desc->offset
+                        , desc->len
+                        , sec);
+                }};
+
+            digest = hash(*desc);
+        }
+
+        spdlog::info("hash: {:#x}", digest);
+    }
+
+    return !stopToken.stop_requested();
+}
+
+uint64_t Hasher::hash(const BDesc &desc)
+{
+    if (!desc.buf)
+        return 0;
+
+    return XXH3_64bits(desc.buf->data(), desc.buf->size());
+}
+
+}

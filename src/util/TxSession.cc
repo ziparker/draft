@@ -28,6 +28,7 @@
 
 #include <sys/stat.h>
 
+#include <draft/util/Hasher.hh>
 #include <draft/util/Reader.hh>
 #include <draft/util/ScopedTimer.hh>
 #include <draft/util/Sender.hh>
@@ -43,6 +44,7 @@ TxSession::TxSession(SessionConfig conf):
     readExec_.setQueueSizeLimit(10);
 
     queue_.setSizeLimit(100);
+    hashQueue_.setSizeLimit(100);
 
     pool_ = BufferPool::make(BufSize, 35);
     targetFds_ = connectNetworkTargets(conf_.targets);
@@ -71,6 +73,9 @@ void TxSession::start(const std::string &path)
 
     sendExec_.add(std::move(senders), ThreadExecutor::Options::DoFinalize);
 
+    for (size_t i = 0; i < 1; ++i)
+        hashExec_.add(util::Hasher{hashQueue_}, ThreadExecutor::Options::DoFinalize);
+
     info_ = getFileInfo(path);
     fileIter_ = nextFile(begin(info_), end(info_));
 }
@@ -81,6 +86,7 @@ void TxSession::finish() noexcept
 
     readExec_.cancel();
     sendExec_.cancel();
+    hashExec_.cancel();
 }
 
 bool TxSession::runOnce()
@@ -98,6 +104,7 @@ bool TxSession::runOnce()
     std::erase_if(readResults_, [](const auto &r) { return !r.valid(); });
 
     sendExec_.runOnce();
+    hashExec_.runOnce();
 
     // if there are more files to read, try to submit reads for them.
     // if our reader queue is full, we'll time-out and try again later.
@@ -160,6 +167,7 @@ bool TxSession::startFile(const FileInfo &info)
         const auto rateDeadline = Clock::now() + 1ms;
 
         auto diskRead = Reader(fd, info.id, {0, fileSz}, pool_, queue_);
+        diskRead.setHashQueue(hashQueue_);
 
         if (auto future = readExec_.launch(std::move(diskRead)))
         {
