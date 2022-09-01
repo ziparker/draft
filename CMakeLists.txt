@@ -91,6 +91,7 @@ list(APPEND DRAFTUTIL_SRC
     src/util/BufferPool.cc
     src/util/Hasher.cc
     src/util/InfoReceiver.cc
+    src/util/Journal.cc
     src/util/PollSet.cc
     src/util/Reader.cc
     src/util/Receiver.cc

@@ -72,9 +72,7 @@ void TxSession::start(const std::string &path)
     targetFds_ = std::vector<ScopedFd>{ };
 
     sendExec_.add(std::move(senders), ThreadExecutor::Options::DoFinalize);
-
-    for (size_t i = 0; i < 1; ++i)
-        hashExec_.add(util::Hasher{hashQueue_}, ThreadExecutor::Options::DoFinalize);
+    hashExec_.add(util::Hasher{hashQueue_}, ThreadExecutor::Options::DoFinalize);
 
     info_ = getFileInfo(path);
     fileIter_ = nextFile(begin(info_), end(info_));
