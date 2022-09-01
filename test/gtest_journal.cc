@@ -24,8 +24,52 @@
  * SOFTWARE.
  */
 
+#include <cstdio>
+#include <filesystem>
+
 #include <gtest/gtest.h>
 
 #include <draft/util/Journal.hh>
 
+namespace fs = std::filesystem;
+
 using draft::util::Journal;
+
+namespace {
+
+class FileJanitor
+{
+public:
+    explicit FileJanitor(std::string path):
+        path_(std::move(path))
+    {
+    }
+
+    ~FileJanitor() noexcept
+    {
+        ::remove(path_.c_str());
+    }
+
+private:
+    std::string path_;
+};
+
+std::string tempFilename(std::string base)
+{
+    base += ".draft_gtest.XXXXXX";
+
+    ::mktemp(base.data());
+
+    return base;
+}
+
+}
+
+TEST(journal, ctor_empty_info)
+{
+    auto basename = tempFilename("/tmp/journal");
+
+    auto j = Journal(basename, { });
+
+    ASSERT_TRUE(fs::exists(basename + ".draft"));
+}

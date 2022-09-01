@@ -90,7 +90,7 @@ Journal::Journal(std::string basename, const std::vector<util::FileInfo> &info)
     fd_ = ScopedFd{
         ::open(
             basename.c_str(),
-            O_APPEND | O_CLOEXEC | O_CREAT | O_DIRECT | O_SYNC | O_EXCL,
+            O_WRONLY | O_APPEND | O_CLOEXEC | O_CREAT | O_DIRECT | O_SYNC | O_EXCL,
             S_IRUSR | S_IWUSR | S_IRGRP)};
 
     if (fd_.get() < 0)
