@@ -309,8 +309,8 @@ public:
             conf.endChar.tick();
         }
 
-        std::cout << "\n" << term::EraseLine{ } <<
-            "ETA: " << std::setprecision(1) << std::fixed << term::ETA{globalEta_};
+        std::cout << term::EraseLine{ } << term::CursorBeginDown{1} <<
+            term::EraseLine{ } << "ETA: " << std::setprecision(1) << std::fixed << term::ETA{globalEta_};
 
         std::cout <<
             term::CursorBeginDown{1} <<
