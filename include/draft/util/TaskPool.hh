@@ -27,6 +27,7 @@
 #ifndef __DRAFT_UTIL_TASK_POOL_HH__
 #define __DRAFT_UTIL_TASK_POOL_HH__
 
+#include <functional>
 #include <future>
 #include <memory>
 #include <thread>
