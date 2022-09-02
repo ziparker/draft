@@ -1,7 +1,7 @@
 # DRAFT
 
-draft is a file transfer tool that was designed to fill a niche need for fast
-transfers of multi-terabyte files across multiple Ethernet links.
+draft is a file transfer tool designed to fill a niche need for fast transfers
+of multi-terabyte files across multiple Ethernet links.
 
 draft is currently in very early stages of development.
 
