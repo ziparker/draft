@@ -67,9 +67,17 @@ std::string tempFilename(std::string base)
 
 TEST(journal, ctor_empty_info)
 {
-    auto basename = tempFilename("/tmp/journal");
+    const auto basename = tempFilename("/tmp/journal");
+    const auto filename = basename + ".draft";
+    auto janitor = FileJanitor{filename};
 
     auto j = Journal(basename, { });
 
     ASSERT_TRUE(fs::exists(basename + ".draft"));
+
+    const auto sz = fs::file_size(filename);
+
+    // expect file size is a multiple of 512.
+    EXPECT_GT(sz, 0);
+    EXPECT_EQ(0, sz % 512);
 }

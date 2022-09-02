@@ -211,7 +211,7 @@ size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset)
         const auto len = ::pwritev(fd, iov, iovCount, static_cast<off_t>(offset));
 
         if (len < 0)
-            throw std::system_error(errno, std::system_category(), "write");
+            throw std::system_error(errno, std::system_category(), "pwritev");
 
         if (!len)
             break;
