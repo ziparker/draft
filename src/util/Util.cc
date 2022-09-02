@@ -197,7 +197,7 @@ size_t writeChunk(int fd, iovec *iov, size_t iovCount)
     return written;
 }
 
-size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset)
+size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset, unsigned flags)
 {
     auto written = size_t{ };
 
@@ -208,7 +208,7 @@ size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset)
             throw std::range_error("writeChunk offset is out of off_t range.");
         }
 
-        const auto len = ::pwritev(fd, iov, iovCount, static_cast<off_t>(offset));
+        const auto len = ::pwritev2(fd, iov, iovCount, static_cast<off_t>(offset), flags);
 
         if (len < 0)
             throw std::system_error(errno, std::system_category(), "pwritev");

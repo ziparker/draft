@@ -43,11 +43,14 @@ public:
 
     void sync();
 
-    int writeHash(uint16_t fileId, size_t offset, size_t len, uint64_t hash);
+    int writeHash(uint16_t fileId, size_t offset, size_t size, uint64_t hash);
 
 private:
+    struct HashRecord;
+
     void writeHeader(const std::vector<FileInfo> &info);
     void writeFileData(const void *data, size_t size);
+    void writeHashRecord(const HashRecord &record);
 
     ScopedFd fd_;
 };

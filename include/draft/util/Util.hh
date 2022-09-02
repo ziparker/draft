@@ -139,7 +139,7 @@ using FdMap = std::unordered_map<unsigned, int>;
 
 size_t readChunk(int fd, void *data, size_t dlen, size_t fileOffset);
 size_t writeChunk(int fd, iovec *iov, size_t iovCount);
-size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset);
+size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset, unsigned flags = 0);
 
 std::vector<FileInfo> getFileInfo(const std::string &path);
 

@@ -83,6 +83,15 @@ void to_json(nlohmann::json &j, const JournalHeader &header)
 
 }
 
+struct Journal::HashRecord
+{
+    uint64_t hash{ };
+    uint64_t offset{ };
+    uint64_t size{ };
+    uint16_t fileId{ };
+    uint8_t pad0_[6]{ };
+};
+
 Journal::Journal(std::string basename, const std::vector<util::FileInfo> &info)
 {
     basename += ".draft";
@@ -108,6 +117,23 @@ void Journal::sync()
 {
     if (::syncfs(fd_.get()) < 0)
         throw std::system_error(errno, std::system_category(), "draft - unable to sync journal");
+}
+
+int Journal::writeHash(uint16_t fileId, size_t offset, size_t size, uint64_t hash)
+{
+    static_assert(sizeof(HashRecord) == 4 * 8);
+
+    const auto record = HashRecord {
+            hash,
+            offset,
+            size,
+            fileId,
+            { }
+        };
+
+    writeHashRecord(record);
+
+    return 0;
 }
 
 void Journal::writeHeader(const std::vector<util::FileInfo> &info)
@@ -169,6 +195,24 @@ void Journal::writeFileData(const void *data, size_t size)
     {
         throw std::runtime_error(
             fmt::format("draft: unable to write journal header of size {}", size));
+    }
+}
+
+void Journal::writeHashRecord(const HashRecord &record)
+{
+    auto iov = iovec{const_cast<HashRecord *>(&record), sizeof(record)};
+
+    // this RWF_APPEND behavior is linux-specific (added in 4.16).
+    if (auto len = writeChunk(fd_.get(), &iov, 1, 0, RWF_APPEND); len != sizeof(record))
+    {
+        throw std::system_error(
+            errno,
+            std::system_category(),
+            fmt::format("draft: unable to write journal hash record for file {} offset {} len {} hash {:#x}"
+                , record.fileId
+                , record.offset
+                , record.size
+                , record.hash));
     }
 }
 
