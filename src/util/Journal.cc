@@ -87,15 +87,6 @@ void to_json(nlohmann::json &j, const JournalHeader &header)
 ////////////////////////////////////////////////////////////////////////////////
 // Journal
 
-struct Journal::HashRecord
-{
-    uint64_t hash{ };
-    uint64_t offset{ };
-    uint64_t size{ };
-    uint16_t fileId{ };
-    uint8_t pad0_[6]{ };
-};
-
 Journal::Journal(std::string basename, const std::vector<util::FileInfo> &info)
 {
     basename += ".draft";
@@ -125,8 +116,6 @@ void Journal::sync()
 
 int Journal::writeHash(uint16_t fileId, size_t offset, size_t size, uint64_t hash)
 {
-    static_assert(sizeof(HashRecord) == 4 * 8);
-
     const auto record = HashRecord {
             hash,
             offset,
@@ -231,14 +220,14 @@ struct Cursor::Data
 };
 
 Cursor::Cursor():
-    d_(std::make_unique<Data>())
+    d_(std::make_shared<Data>())
 {
     d_->hashOffset = journalHashOffset();
 }
 
 Cursor::~Cursor() noexcept = default;
 
-Cursor &Cursor::seek(size_t count, Whence whence)
+Cursor &Cursor::seek(off_t count, Whence whence)
 {
     auto idx = d_->recordIdx;
     const auto recordCount = journalRecordCount();
@@ -246,20 +235,41 @@ Cursor &Cursor::seek(size_t count, Whence whence)
     if (!recordCount)
         return *this;
 
+    const auto countAbsSz = static_cast<size_t>(std::abs(count));
+
     switch (whence)
     {
         case Start:
-            idx = count;
+            idx = count < 0 ? ~size_t{ } : countAbsSz;
             break;
         case Current:
-            idx += count;
+            if (count < 0)
+            {
+                if (idx - countAbsSz > idx)
+                    idx = ~size_t{ };
+                else
+                    idx -= countAbsSz;
+            }
+            else if (idx + countAbsSz < idx)
+            {
+                idx = ~size_t{ };
+            }
+            else
+            {
+                idx += countAbsSz;
+            }
+
             break;
         case End:
-            // saturate at beginning of journal.
-            if (count >= recordCount)
+            if (count > 0 || countAbsSz >= recordCount ||
+                recordCount - countAbsSz - 1 > recordCount)
+            {
                 idx = ~size_t{ };
+            }
             else
-                idx = recordCount - count - 1;
+            {
+                idx = recordCount - countAbsSz - 1;
+            }
 
             break;
     }

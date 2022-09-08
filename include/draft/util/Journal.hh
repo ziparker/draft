@@ -38,17 +38,32 @@
 namespace draft::util {
 
 class Cursor;
+class CursorIter;
 
 class Journal
 {
 public:
-    struct HashRecord;
+    struct HashRecord
+    {
+        uint64_t hash{ };
+        uint64_t offset{ };
+        uint64_t size{ };
+        uint16_t fileId{ };
+        uint8_t pad0_[6]{ };
+    };
+
+    static_assert(sizeof(HashRecord) == 4 * 8);
+
+    using const_iterator = CursorIter;
 
     explicit Journal(std::string basename, const std::vector<FileInfo> &info);
 
     void sync();
 
     int writeHash(uint16_t fileId, size_t offset, size_t size, uint64_t hash);
+
+    const_iterator begin() const;
+    const_iterator end() const;
 
 private:
 
@@ -72,7 +87,7 @@ public:
     Cursor();
     ~Cursor() noexcept;
 
-    Cursor &seek(size_t count, Whence whence = Whence::Current);
+    Cursor &seek(off_t count, Whence whence = Whence::Current);
     bool valid() const;
 
     std::optional<Journal::HashRecord> hashRecord() const;
@@ -86,7 +101,58 @@ private:
     size_t journalHashOffset() const;
 
     struct Data;
-    std::unique_ptr<Data> d_;
+    std::shared_ptr<Data> d_;
+};
+
+class CursorIter
+{
+public:
+    using HashRecord = Journal::HashRecord;
+
+    const HashRecord *operator->() const
+    {
+        return &record_;
+    }
+
+    const HashRecord &operator*() const
+    {
+        return record_;
+    }
+
+    CursorIter &operator++()
+    {
+        cursor_.seek(1);
+        return *this;
+    }
+
+    CursorIter operator++(int)
+    {
+        auto cursor = cursor_.seek(1);
+        return *this;
+    }
+
+    CursorIter operator--()
+    {
+        auto cursor = cursor_.seek(-1);
+        return *this;
+    }
+
+    CursorIter operator--(int)
+    {
+        auto cursor = cursor_.seek(-1);
+        return *this;
+    }
+
+private:
+    friend class Journal;
+
+    explicit CursorIter(Cursor c):
+        cursor_(c)
+    {
+    }
+
+    Cursor cursor_;
+    HashRecord record_;
 };
 
 }

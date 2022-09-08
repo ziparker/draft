@@ -82,7 +82,17 @@ TEST(journal, ctor_empty_info)
     EXPECT_EQ(0, sz % 512);
 }
 
-TEST(journal, single_hash)
+TEST(journal, single_hash_write)
+{
+    const auto basename = tempFilename("/tmp/journal");
+    auto janitor = FileJanitor{basename + ".draft"};
+
+    auto j = Journal(basename, { });
+    ASSERT_TRUE(fs::exists(basename + ".draft"));
+    ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
+}
+
+TEST(journal, cursor)
 {
     const auto basename = tempFilename("/tmp/journal");
     auto janitor = FileJanitor{basename + ".draft"};
