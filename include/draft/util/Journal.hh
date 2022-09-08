@@ -27,6 +27,7 @@
 #ifndef __DRAFT_UTIL_JOURNAL_HH__
 #define __DRAFT_UTIL_JOURNAL_HH__
 
+#include <optional>
 #include <span>
 #include <system_error>
 #include <vector>
@@ -36,9 +37,13 @@
 
 namespace draft::util {
 
+class Cursor;
+
 class Journal
 {
 public:
+    struct HashRecord;
+
     explicit Journal(std::string basename, const std::vector<FileInfo> &info);
 
     void sync();
@@ -46,13 +51,42 @@ public:
     int writeHash(uint16_t fileId, size_t offset, size_t size, uint64_t hash);
 
 private:
-    struct HashRecord;
 
     void writeHeader(const std::vector<FileInfo> &info);
     void writeFileData(const void *data, size_t size);
     void writeHashRecord(const HashRecord &record);
 
     ScopedFd fd_;
+};
+
+class Cursor
+{
+public:
+    enum Whence
+    {
+        Start,
+        Current,
+        End
+    };
+
+    Cursor();
+    ~Cursor() noexcept;
+
+    Cursor &seek(size_t count, Whence whence = Whence::Current);
+    bool valid() const;
+
+    std::optional<Journal::HashRecord> hashRecord() const;
+
+private:
+    friend class Journal;
+
+    explicit Cursor(ScopedFd fd);
+
+    size_t journalRecordCount() const;
+    size_t journalHashOffset() const;
+
+    struct Data;
+    std::unique_ptr<Data> d_;
 };
 
 }

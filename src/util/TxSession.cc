@@ -72,6 +72,9 @@ void TxSession::start(const std::string &path)
     targetFds_ = std::vector<ScopedFd>{ };
 
     sendExec_.add(std::move(senders), ThreadExecutor::Options::DoFinalize);
+
+    // hashers are in a separate executor to make it easier to tell when read
+    // execs finish.
     hashExec_.add(util::Hasher{hashQueue_}, ThreadExecutor::Options::DoFinalize);
 
     info_ = getFileInfo(path);

@@ -28,6 +28,7 @@
 
 #include <endian.h>
 #include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <spdlog/fmt/fmt.h>
@@ -82,6 +83,9 @@ void to_json(nlohmann::json &j, const JournalHeader &header)
 }
 
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Journal
 
 struct Journal::HashRecord
 {
@@ -214,6 +218,109 @@ void Journal::writeHashRecord(const HashRecord &record)
                 , record.size
                 , record.hash));
     }
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// Cursor
+
+struct Cursor::Data
+{
+    ScopedFd fd{ };
+    size_t recordIdx{ };
+    size_t hashOffset{ };
+};
+
+Cursor::Cursor():
+    d_(std::make_unique<Data>())
+{
+    d_->hashOffset = journalHashOffset();
+}
+
+Cursor::~Cursor() noexcept = default;
+
+Cursor &Cursor::seek(size_t count, Whence whence)
+{
+    auto idx = d_->recordIdx;
+    const auto recordCount = journalRecordCount();
+
+    if (!recordCount)
+        return *this;
+
+    switch (whence)
+    {
+        case Start:
+            idx = count;
+            break;
+        case Current:
+            idx += count;
+            break;
+        case End:
+            // saturate at beginning of journal.
+            if (count >= recordCount)
+                idx = ~size_t{ };
+            else
+                idx = recordCount - count - 1;
+
+            break;
+    }
+
+    d_->recordIdx = idx;
+
+    return *this;
+}
+
+bool Cursor::valid() const
+{
+    const auto recordCount = journalRecordCount();
+
+    return recordCount &&
+        d_->recordIdx < recordCount;
+}
+
+std::optional<Journal::HashRecord> Cursor::hashRecord() const
+{
+    if (!valid())
+        return std::nullopt;
+
+    const auto offset =
+        d_->hashOffset +
+        d_->recordIdx * sizeof(Journal::HashRecord);
+
+    auto record = Journal::HashRecord{ };
+    util::readChunk(d_->fd.get(), &record, sizeof(record), offset);
+
+    return record;
+}
+
+size_t Cursor::journalRecordCount() const
+{
+    struct stat st{ };
+    auto stat = fstat(d_->fd.get(), &st);
+
+    if (stat)
+    {
+        throw std::system_error(errno, std::system_category(),
+            "draft journal cursor: unable to determine journal record count (fstat)");
+    }
+
+    if (st.st_size < 0 || static_cast<size_t>(st.st_size) <= d_->hashOffset)
+        return 0;
+
+    return (static_cast<size_t>(st.st_size) - d_->hashOffset) / sizeof(Journal::HashRecord);
+}
+
+size_t Cursor::journalHashOffset() const
+{
+    auto buf = FileHeader{ };
+    util::readChunk(d_->fd.get(), &buf, sizeof(buf), 0);
+
+    return buf.journalOffset;
+}
+
+Cursor::Cursor(ScopedFd fd):
+    Cursor()
+{
+    d_->fd = std::move(fd);
 }
 
 }
