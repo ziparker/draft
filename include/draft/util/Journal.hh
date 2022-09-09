@@ -62,16 +62,17 @@ public:
 
     int writeHash(uint16_t fileId, size_t offset, size_t size, uint64_t hash);
 
+    Cursor cursor() const;
     const_iterator begin() const;
     const_iterator end() const;
 
 private:
-
     void writeHeader(const std::vector<FileInfo> &info);
     void writeFileData(const void *data, size_t size);
     void writeHashRecord(const HashRecord &record);
 
     ScopedFd fd_;
+    std::string path_;
 };
 
 class Cursor
@@ -79,7 +80,7 @@ class Cursor
 public:
     enum Whence
     {
-        Start,
+        Set,
         Current,
         End
     };
@@ -109,15 +110,9 @@ class CursorIter
 public:
     using HashRecord = Journal::HashRecord;
 
-    const HashRecord *operator->() const
-    {
-        return &record_;
-    }
+    const HashRecord *operator->() const;
 
-    const HashRecord &operator*() const
-    {
-        return record_;
-    }
+    const HashRecord &operator*() const;
 
     CursorIter &operator++()
     {
@@ -127,8 +122,9 @@ public:
 
     CursorIter operator++(int)
     {
-        auto cursor = cursor_.seek(1);
-        return *this;
+        auto prev = *this;
+        cursor_.seek(1);
+        return prev;
     }
 
     CursorIter operator--()
@@ -139,20 +135,21 @@ public:
 
     CursorIter operator--(int)
     {
-        auto cursor = cursor_.seek(-1);
-        return *this;
+        auto prev = *this;
+        cursor_.seek(-1);
+        return prev;
     }
 
 private:
     friend class Journal;
 
-    explicit CursorIter(Cursor c):
+    CursorIter(Cursor c):
         cursor_(c)
     {
     }
 
     Cursor cursor_;
-    HashRecord record_;
+    mutable std::optional<HashRecord> record_;
 };
 
 }

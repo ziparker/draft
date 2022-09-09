@@ -33,6 +33,7 @@
 
 namespace fs = std::filesystem;
 
+using draft::util::Cursor;
 using draft::util::Journal;
 
 namespace {
@@ -92,12 +93,98 @@ TEST(journal, single_hash_write)
     ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
 }
 
-TEST(journal, cursor)
+TEST(journal, no_hash_cursor)
 {
     const auto basename = tempFilename("/tmp/journal");
     auto janitor = FileJanitor{basename + ".draft"};
 
     auto j = Journal(basename, { });
     ASSERT_TRUE(fs::exists(basename + ".draft"));
-    ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
+
+    auto c = j.cursor();
+    EXPECT_FALSE(c.valid());
+
+    // verify that seeks from start/end/current remain invalid.
+    c.seek(1);
+    EXPECT_FALSE(c.valid());
+
+    c.seek(-2);
+    EXPECT_FALSE(c.valid());
+
+    c.seek(0, Cursor::Set);
+    EXPECT_FALSE(c.valid());
+
+    c.seek(0, Cursor::End);
+    EXPECT_FALSE(c.valid());
+
+    c.seek(1, Cursor::End);
+    EXPECT_FALSE(c.valid());
+
+    c.seek(-1, Cursor::Set);
+    EXPECT_FALSE(c.valid());
 }
+
+TEST(journal, eventual_hash_cursor_start)
+{
+    const auto basename = tempFilename("/tmp/journal");
+    auto janitor = FileJanitor{basename + ".draft"};
+
+    auto j = Journal(basename, { });
+    ASSERT_TRUE(fs::exists(basename + ".draft"));
+
+    auto c = j.cursor();
+    EXPECT_FALSE(c.valid());
+
+    ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
+
+    // cursor remains invalid until position is set to a valid value.
+    EXPECT_FALSE(c.valid());
+
+    // seek to become valid.
+    c.seek(0);
+    EXPECT_TRUE(c.valid());
+
+    // seek to end to become invalid.
+    c.seek(0, Cursor::End);
+    EXPECT_FALSE(c.valid());
+
+    // seek set to become valid.
+    c.seek(0, Cursor::Set);
+    EXPECT_TRUE(c.valid());
+}
+
+//TEST(journal, cursor)
+//{
+//    const auto basename = tempFilename("/tmp/journal");
+//    auto janitor = FileJanitor{basename + ".draft"};
+//
+//    auto j = Journal(basename, { });
+//    ASSERT_TRUE(fs::exists(basename + ".draft"));
+//    ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
+//
+//    auto c = j.
+//}
+//
+//TEST(journal, iter_begin)
+//{
+//    const auto basename = tempFilename("/tmp/journal");
+//    auto janitor = FileJanitor{basename + ".draft"};
+//
+//    auto j = Journal(basename, { });
+//    ASSERT_TRUE(fs::exists(basename + ".draft"));
+//    ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
+//
+//    auto c = j.
+//}
+//
+//TEST(journal, iter_end)
+//{
+//    const auto basename = tempFilename("/tmp/journal");
+//    auto janitor = FileJanitor{basename + ".draft"};
+//
+//    auto j = Journal(basename, { });
+//    ASSERT_TRUE(fs::exists(basename + ".draft"));
+//    ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
+//
+//    auto c = j.
+//}

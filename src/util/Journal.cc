@@ -31,8 +31,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <spdlog/fmt/fmt.h>
 #include <nlohmann/json.hpp>
+#include <spdlog/fmt/fmt.h>
+#include <spdlog/spdlog.h>
 
 #include <draft/util/Journal.hh>
 #include <draft/util/UtilJson.hh>
@@ -106,6 +107,8 @@ Journal::Journal(std::string basename, const std::vector<util::FileInfo> &info)
     }
 
     writeHeader(info);
+
+    path_ = std::move(basename);
 }
 
 void Journal::sync()
@@ -209,20 +212,45 @@ void Journal::writeHashRecord(const HashRecord &record)
     }
 }
 
+Cursor Journal::cursor() const
+{
+    auto fd = ScopedFd{open(path_.c_str(), O_RDONLY | O_CLOEXEC)};
+
+    if (fd.get() < 0)
+    {
+        throw std::system_error(errno, std::system_category(),
+            "draft Journal::Begin");
+    }
+
+    return Cursor{std::move(fd)};
+}
+
+Journal::const_iterator Journal::begin() const
+{
+    return cursor();
+}
+
+Journal::const_iterator Journal::end() const
+{
+    auto c = cursor();
+    c.seek(-1);
+
+    return c;
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Cursor
 
 struct Cursor::Data
 {
     ScopedFd fd{ };
-    size_t recordIdx{ };
+    size_t recordIdx{~size_t{ }};
     size_t hashOffset{ };
 };
 
 Cursor::Cursor():
     d_(std::make_shared<Data>())
 {
-    d_->hashOffset = journalHashOffset();
 }
 
 Cursor::~Cursor() noexcept = default;
@@ -237,15 +265,19 @@ Cursor &Cursor::seek(off_t count, Whence whence)
 
     const auto countAbsSz = static_cast<size_t>(std::abs(count));
 
+    // note, cursor invalidates before/after start/end.
     switch (whence)
     {
-        case Start:
-            idx = count < 0 ? ~size_t{ } : countAbsSz;
+        case Set:
+            idx = count < 0 || countAbsSz > recordCount ? ~size_t{ } : countAbsSz;
             break;
         case Current:
             if (count < 0)
             {
-                if (idx - countAbsSz > idx)
+                if (idx == ~size_t{ })
+                    return seek(count, Cursor::End);
+
+                if (countAbsSz > idx)
                     idx = ~size_t{ };
                 else
                     idx -= countAbsSz;
@@ -256,20 +288,18 @@ Cursor &Cursor::seek(off_t count, Whence whence)
             }
             else
             {
+                if (idx == ~size_t{ })
+                    return seek(count, Cursor::Set);
+
                 idx += countAbsSz;
             }
 
             break;
         case End:
-            if (count > 0 || countAbsSz >= recordCount ||
-                recordCount - countAbsSz - 1 > recordCount)
-            {
+            if (count > 0 || countAbsSz > recordCount)
                 idx = ~size_t{ };
-            }
             else
-            {
-                idx = recordCount - countAbsSz - 1;
-            }
+                idx = recordCount - countAbsSz;
 
             break;
     }
@@ -331,6 +361,30 @@ Cursor::Cursor(ScopedFd fd):
     Cursor()
 {
     d_->fd = std::move(fd);
+    d_->hashOffset = journalHashOffset();
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// CursorIter
+
+const CursorIter::HashRecord *CursorIter::operator->() const
+{
+    record_ = cursor_.hashRecord();
+
+    if (!record_)
+        throw std::runtime_error("draft journal: out of range access (operator ->)");
+
+    return record_.operator->();
+}
+
+const CursorIter::HashRecord &CursorIter::operator*() const
+{
+    record_ = cursor_.hashRecord();
+
+    if (!record_)
+        throw std::runtime_error("draft journal: out of range access (operator *)");
+
+    return *record_;
 }
 
 }
