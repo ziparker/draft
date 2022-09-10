@@ -262,8 +262,6 @@ Cursor &Cursor::seek(off_t count, Whence whence)
 
     const auto countAbsSz = static_cast<size_t>(std::abs(count));
 
-    // note, cursor invalidates before/after start/end.
-    // invalid currsor requires seek set or end to become valid.
     switch (whence)
     {
         case Set:

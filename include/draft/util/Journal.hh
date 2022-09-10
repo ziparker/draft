@@ -90,6 +90,16 @@ public:
     Cursor();
     ~Cursor() noexcept;
 
+    /**
+     * Seek through the journal's hash records.
+     *
+     *
+     * note, cursor invalidates before/after start/end.
+     * invalid currsor requires seek set or end to become valid.
+     *
+     * @param count The distance to seek.
+     * @param whence The locate from which to start the seek.
+     */
     Cursor &seek(off_t count, Whence whence = Whence::Current);
     bool valid() const;
 

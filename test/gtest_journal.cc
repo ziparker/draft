@@ -166,7 +166,7 @@ TEST(cursor, seek)
     EXPECT_FALSE(c.valid());
 }
 
-TEST(journal, eventual_hash_cursor_start)
+TEST(cursor, eventual_hash)
 {
     const auto basename = tempFilename("/tmp/journal");
     auto janitor = FileJanitor{basename + ".draft"};
@@ -195,7 +195,7 @@ TEST(journal, eventual_hash_cursor_start)
     EXPECT_TRUE(c.valid());
 }
 
-TEST(journal, cursor_record)
+TEST(cursor, record)
 {
     const auto basename = tempFilename("/tmp/journal");
     auto janitor = FileJanitor{basename + ".draft"};
@@ -246,4 +246,25 @@ TEST(journal, cursor_record)
 
     rec = c.hashRecord();
     EXPECT_TRUE(recordMatches(*rec, hash1));
+}
+
+TEST(iterator, begin_end)
+{
+    const auto basename = tempFilename("/tmp/journal");
+    auto janitor = FileJanitor{basename + ".draft"};
+
+    auto j = Journal(basename, { });
+    auto hash0 = HashRecord{0, 512, 512, 0};
+
+    ASSERT_EQ(0, j.writeHash(hash0.fileId, hash0.offset, hash0.size, hash0.hash));
+
+    auto iter = j.begin();
+    EXPECT_EQ(iter->hash, hash0.hash);
+
+    iter = j.end();
+    EXPECT_THROW(*iter, std::runtime_error);
+}
+
+TEST(iterator, inc_dec)
+{
 }
