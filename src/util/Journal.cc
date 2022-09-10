@@ -323,6 +323,11 @@ std::optional<Journal::HashRecord> Cursor::hashRecord() const
     return record;
 }
 
+size_t Cursor::position() const
+{
+    return d_->recordIdx;
+}
+
 size_t Cursor::journalRecordCount() const
 {
     struct stat st{ };

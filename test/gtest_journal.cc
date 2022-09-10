@@ -52,6 +52,12 @@ public:
         ::remove(path_.c_str());
     }
 
+    FileJanitor(const FileJanitor &) = delete;
+    FileJanitor &operator=(const FileJanitor &) = delete;
+
+    FileJanitor(FileJanitor &&o) = default;
+    FileJanitor &operator=(FileJanitor &&o) = default;
+
 private:
     std::string path_;
 };
@@ -65,7 +71,35 @@ std::string tempFilename(std::string base)
     return base;
 }
 
+constexpr HashRecord defaultHashRecord(size_t idx = 0)
+{
+    return {
+        .hash = idx,
+        .offset = 512u * (idx + 1),
+        .size = 512u,
+        .fileId = 0
+    };
 }
+
+std::pair<FileJanitor, Journal> setupJournal(size_t hashCount = 0)
+{
+    const auto basename = tempFilename("/tmp/journal");
+
+    auto janitor = FileJanitor{basename + ".draft"};
+    auto journal = Journal(basename, { });
+
+    fs::exists(basename + ".draft");
+
+    for (size_t i = 0; i < hashCount; ++i)
+    {
+        auto rec = defaultHashRecord(i);
+        journal.writeHash(rec.fileId, rec.offset, rec.size, rec.hash);
+    }
+
+    return {std::move(janitor), std::move(journal)};
+}
+
+} // namespace
 
 TEST(journal, ctor_empty_info)
 {
@@ -197,11 +231,7 @@ TEST(cursor, eventual_hash)
 
 TEST(cursor, record)
 {
-    const auto basename = tempFilename("/tmp/journal");
-    auto janitor = FileJanitor{basename + ".draft"};
-
-    auto j = Journal(basename, { });
-    ASSERT_TRUE(fs::exists(basename + ".draft"));
+    auto [janitor, j] = setupJournal();
 
     auto c = j.cursor();
     EXPECT_FALSE(c.valid());
@@ -209,8 +239,8 @@ TEST(cursor, record)
     auto rec = c.hashRecord();
     EXPECT_FALSE(rec.has_value());
 
-    auto hash0 = HashRecord{0, 512, 512, 0};
-    auto hash1 = HashRecord{1, 512, 512, 1};
+    auto hash0 = defaultHashRecord(0);
+    auto hash1 = defaultHashRecord(1);
 
     constexpr auto recordMatches = [](const HashRecord &a, const HashRecord &b) {
             return !bcmp(&a, &b, sizeof(a));
@@ -250,21 +280,43 @@ TEST(cursor, record)
 
 TEST(iterator, begin_end)
 {
-    const auto basename = tempFilename("/tmp/journal");
-    auto janitor = FileJanitor{basename + ".draft"};
+    auto [janitor, journal] = setupJournal(1);
+    constexpr auto hash0 = defaultHashRecord(0);
 
-    auto j = Journal(basename, { });
-    auto hash0 = HashRecord{0, 512, 512, 0};
-
-    ASSERT_EQ(0, j.writeHash(hash0.fileId, hash0.offset, hash0.size, hash0.hash));
-
-    auto iter = j.begin();
+    auto iter = journal.begin();
     EXPECT_EQ(iter->hash, hash0.hash);
+    EXPECT_EQ((*iter).hash, hash0.hash);
 
-    iter = j.end();
+    iter = journal.end();
     EXPECT_THROW(*iter, std::runtime_error);
 }
 
 TEST(iterator, inc_dec)
 {
+    constexpr auto hash0 = defaultHashRecord(0);
+    constexpr auto hash1 = defaultHashRecord(1);
+
+    auto [janitor, journal] = setupJournal(2);
+
+    auto iter = journal.begin();
+    auto last = journal.end();
+
+    EXPECT_EQ(iter->hash, hash0.hash);
+
+    ++iter;
+    EXPECT_EQ(iter->hash, hash1.hash);
+
+    ++iter;
+    EXPECT_TRUE(iter == last);
+
+    auto old = iter--;
+    EXPECT_TRUE(old == last);
+    EXPECT_FALSE(iter == last);
+    EXPECT_EQ(iter->hash, hash1.hash);
+
+    old = iter++;
+    EXPECT_FALSE(old == last);
+    EXPECT_TRUE(iter == last);
+    EXPECT_EQ(old->hash, hash1.hash);
+    EXPECT_THROW(iter->hash, std::runtime_error);
 }

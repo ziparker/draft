@@ -105,6 +105,8 @@ public:
 
     std::optional<Journal::HashRecord> hashRecord() const;
 
+    size_t position() const;
+
 private:
     friend class Journal;
 
@@ -126,6 +128,18 @@ public:
 
     const HashRecord &operator*() const;
 
+    CursorIter &operator+=(off_t offset)
+    {
+        cursor_.seek(offset);
+        return *this;
+    }
+
+    CursorIter &operator-=(off_t offset)
+    {
+        cursor_.seek(-offset);
+        return *this;
+    }
+
     CursorIter &operator++()
     {
         cursor_.seek(1);
@@ -139,9 +153,9 @@ public:
         return prev;
     }
 
-    CursorIter operator--()
+    CursorIter &operator--()
     {
-        auto cursor = cursor_.seek(-1);
+        cursor_.seek(-1);
         return *this;
     }
 
@@ -150,6 +164,11 @@ public:
         auto prev = *this;
         cursor_.seek(-1);
         return prev;
+    }
+
+    friend auto operator<=>(const CursorIter &a, const CursorIter &b)
+    {
+        return a.cursor_.position() <=> b.cursor_.position();
     }
 
 private:
@@ -163,6 +182,25 @@ private:
     Cursor cursor_;
     mutable std::optional<HashRecord> record_;
 };
+
+inline CursorIter operator+(const CursorIter &iter, off_t offset)
+{
+    auto next = iter;
+    next += offset;
+    return next;
+}
+
+inline CursorIter operator-(const CursorIter &iter, off_t offset)
+{
+    auto prev = iter;
+    prev -= offset;
+    return prev;
+}
+
+inline bool operator==(const CursorIter &a, const CursorIter &b)
+{
+    return a <=> b == 0;
+}
 
 }
 
