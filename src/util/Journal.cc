@@ -227,15 +227,12 @@ Cursor Journal::cursor() const
 
 Journal::const_iterator Journal::begin() const
 {
-    return cursor();
+    return cursor().seek(0, Cursor::Set);
 }
 
 Journal::const_iterator Journal::end() const
 {
-    auto c = cursor();
-    c.seek(-1);
-
-    return c;
+    return cursor().seek(0, Cursor::End);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -266,6 +263,7 @@ Cursor &Cursor::seek(off_t count, Whence whence)
     const auto countAbsSz = static_cast<size_t>(std::abs(count));
 
     // note, cursor invalidates before/after start/end.
+    // invalid currsor requires seek set or end to become valid.
     switch (whence)
     {
         case Set:
@@ -274,10 +272,7 @@ Cursor &Cursor::seek(off_t count, Whence whence)
         case Current:
             if (count < 0)
             {
-                if (idx == ~size_t{ })
-                    return seek(count, Cursor::End);
-
-                if (countAbsSz > idx)
+                if (idx == ~size_t{ } || countAbsSz > idx)
                     idx = ~size_t{ };
                 else
                     idx -= countAbsSz;
@@ -288,10 +283,8 @@ Cursor &Cursor::seek(off_t count, Whence whence)
             }
             else
             {
-                if (idx == ~size_t{ })
-                    return seek(count, Cursor::Set);
-
-                idx += countAbsSz;
+                if (idx != ~size_t{ })
+                    idx += countAbsSz;
             }
 
             break;

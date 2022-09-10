@@ -32,6 +32,8 @@
 #include <system_error>
 #include <vector>
 
+#include <strings.h>
+
 #include "ScopedFd.hh"
 #include "Util.hh"
 

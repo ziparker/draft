@@ -35,6 +35,7 @@ namespace fs = std::filesystem;
 
 using draft::util::Cursor;
 using draft::util::Journal;
+using HashRecord = Journal::HashRecord;
 
 namespace {
 
@@ -93,7 +94,7 @@ TEST(journal, single_hash_write)
     ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
 }
 
-TEST(journal, no_hash_cursor)
+TEST(cursor, no_hash)
 {
     const auto basename = tempFilename("/tmp/journal");
     auto janitor = FileJanitor{basename + ".draft"};
@@ -124,6 +125,47 @@ TEST(journal, no_hash_cursor)
     EXPECT_FALSE(c.valid());
 }
 
+TEST(cursor, seek)
+{
+    const auto basename = tempFilename("/tmp/journal");
+    auto janitor = FileJanitor{basename + ".draft"};
+
+    auto j = Journal(basename, { });
+    ASSERT_TRUE(fs::exists(basename + ".draft"));
+
+    auto c = j.cursor();
+    EXPECT_FALSE(c.valid());
+
+    ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
+
+    // cursor remains invalid until position is set to a valid value.
+    EXPECT_FALSE(c.valid());
+
+    // seek to become valid.
+    c.seek(0, Cursor::Set);
+    EXPECT_TRUE(c.valid());
+
+    // seek to end -1 to remain valid.
+    c.seek(-1, Cursor::End);
+    EXPECT_TRUE(c.valid());
+
+    // seek to begin -1 to remain invalid.
+    c.seek(-1, Cursor::Set);
+    EXPECT_FALSE(c.valid());
+
+    // seek to end -1 to become valid.
+    c.seek(-1, Cursor::End);
+    EXPECT_TRUE(c.valid());
+
+    // seek to current -1 to become invalid.
+    c.seek(-1, Cursor::Current);
+    EXPECT_FALSE(c.valid());
+
+    // seek to current +1 to remain invalid.
+    c.seek(1, Cursor::Current);
+    EXPECT_FALSE(c.valid());
+}
+
 TEST(journal, eventual_hash_cursor_start)
 {
     const auto basename = tempFilename("/tmp/journal");
@@ -141,7 +183,7 @@ TEST(journal, eventual_hash_cursor_start)
     EXPECT_FALSE(c.valid());
 
     // seek to become valid.
-    c.seek(0);
+    c.seek(0, Cursor::Set);
     EXPECT_TRUE(c.valid());
 
     // seek to end to become invalid.
@@ -153,38 +195,55 @@ TEST(journal, eventual_hash_cursor_start)
     EXPECT_TRUE(c.valid());
 }
 
-//TEST(journal, cursor)
-//{
-//    const auto basename = tempFilename("/tmp/journal");
-//    auto janitor = FileJanitor{basename + ".draft"};
-//
-//    auto j = Journal(basename, { });
-//    ASSERT_TRUE(fs::exists(basename + ".draft"));
-//    ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
-//
-//    auto c = j.
-//}
-//
-//TEST(journal, iter_begin)
-//{
-//    const auto basename = tempFilename("/tmp/journal");
-//    auto janitor = FileJanitor{basename + ".draft"};
-//
-//    auto j = Journal(basename, { });
-//    ASSERT_TRUE(fs::exists(basename + ".draft"));
-//    ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
-//
-//    auto c = j.
-//}
-//
-//TEST(journal, iter_end)
-//{
-//    const auto basename = tempFilename("/tmp/journal");
-//    auto janitor = FileJanitor{basename + ".draft"};
-//
-//    auto j = Journal(basename, { });
-//    ASSERT_TRUE(fs::exists(basename + ".draft"));
-//    ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
-//
-//    auto c = j.
-//}
+TEST(journal, cursor_record)
+{
+    const auto basename = tempFilename("/tmp/journal");
+    auto janitor = FileJanitor{basename + ".draft"};
+
+    auto j = Journal(basename, { });
+    ASSERT_TRUE(fs::exists(basename + ".draft"));
+
+    auto c = j.cursor();
+    EXPECT_FALSE(c.valid());
+
+    auto rec = c.hashRecord();
+    EXPECT_FALSE(rec.has_value());
+
+    auto hash0 = HashRecord{0, 512, 512, 0};
+    auto hash1 = HashRecord{1, 512, 512, 1};
+
+    constexpr auto recordMatches = [](const HashRecord &a, const HashRecord &b) {
+            return !bcmp(&a, &b, sizeof(a));
+        };
+
+    ASSERT_EQ(0, j.writeHash(hash0.fileId, hash0.offset, hash0.size, hash0.hash));
+    ASSERT_TRUE(c.seek(0, Cursor::Set).valid());
+
+    rec = c.hashRecord();
+    ASSERT_TRUE(rec.has_value());
+    EXPECT_TRUE(recordMatches(*rec, hash0));
+
+    ASSERT_EQ(0, j.writeHash(hash1.fileId, hash1.offset, hash1.size, hash1.hash));
+    rec = c.seek(1).hashRecord();
+    ASSERT_TRUE(rec.has_value());
+
+    rec = c.hashRecord();
+    ASSERT_TRUE(rec.has_value());
+    EXPECT_TRUE(recordMatches(*rec, hash1));
+
+    c.seek(0, Cursor::Set);
+    rec = c.hashRecord();
+    ASSERT_TRUE(rec.has_value());
+    EXPECT_TRUE(recordMatches(*rec, hash0));
+
+    c.seek(0, Cursor::End);
+    rec = c.hashRecord();
+    EXPECT_FALSE(rec.has_value());
+
+    c.seek(-1, Cursor::End);
+    rec = c.hashRecord();
+    ASSERT_TRUE(rec.has_value());
+
+    rec = c.hashRecord();
+    EXPECT_TRUE(recordMatches(*rec, hash1));
+}
