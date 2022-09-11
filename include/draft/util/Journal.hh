@@ -88,11 +88,13 @@ public:
     };
 
     Cursor();
-    ~Cursor() noexcept;
+    Cursor(const Cursor &) = default;
+    Cursor &operator=(const Cursor &) = default;
+    Cursor(Cursor &&) = default;
+    Cursor &operator=(Cursor &&) = default;
 
     /**
      * Seek through the journal's hash records.
-     *
      *
      * note, cursor invalidates before/after start/end.
      * invalid currsor requires seek set or end to become valid.
@@ -110,13 +112,14 @@ public:
 private:
     friend class Journal;
 
-    explicit Cursor(ScopedFd fd);
+    explicit Cursor(const std::shared_ptr<ScopedFd> &fd);
 
     size_t journalRecordCount() const;
     size_t journalHashOffset() const;
 
-    struct Data;
-    std::shared_ptr<Data> d_;
+    std::shared_ptr<ScopedFd> fd_{ };
+    size_t recordIdx_{~size_t{ }};
+    size_t hashOffset_{ };
 };
 
 class CursorIter

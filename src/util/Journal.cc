@@ -222,7 +222,7 @@ Cursor Journal::cursor() const
             "draft Journal::Begin");
     }
 
-    return Cursor{std::move(fd)};
+    return Cursor{std::make_shared<ScopedFd>(std::move(fd))};
 }
 
 Journal::const_iterator Journal::begin() const
@@ -238,23 +238,14 @@ Journal::const_iterator Journal::end() const
 ////////////////////////////////////////////////////////////////////////////////
 // Cursor
 
-struct Cursor::Data
-{
-    ScopedFd fd{ };
-    size_t recordIdx{~size_t{ }};
-    size_t hashOffset{ };
-};
-
 Cursor::Cursor():
-    d_(std::make_shared<Data>())
+    fd_(std::make_shared<ScopedFd>())
 {
 }
 
-Cursor::~Cursor() noexcept = default;
-
 Cursor &Cursor::seek(off_t count, Whence whence)
 {
-    auto idx = d_->recordIdx;
+    auto idx = recordIdx_;
     const auto recordCount = journalRecordCount();
 
     if (!recordCount)
@@ -295,7 +286,7 @@ Cursor &Cursor::seek(off_t count, Whence whence)
             break;
     }
 
-    d_->recordIdx = idx;
+    recordIdx_ = idx;
 
     return *this;
 }
@@ -305,7 +296,7 @@ bool Cursor::valid() const
     const auto recordCount = journalRecordCount();
 
     return recordCount &&
-        d_->recordIdx < recordCount;
+        recordIdx_ < recordCount;
 }
 
 std::optional<Journal::HashRecord> Cursor::hashRecord() const
@@ -314,24 +305,24 @@ std::optional<Journal::HashRecord> Cursor::hashRecord() const
         return std::nullopt;
 
     const auto offset =
-        d_->hashOffset +
-        d_->recordIdx * sizeof(Journal::HashRecord);
+        hashOffset_ +
+        recordIdx_ * sizeof(Journal::HashRecord);
 
     auto record = Journal::HashRecord{ };
-    util::readChunk(d_->fd.get(), &record, sizeof(record), offset);
+    util::readChunk(fd_->get(), &record, sizeof(record), offset);
 
     return record;
 }
 
 size_t Cursor::position() const
 {
-    return d_->recordIdx;
+    return recordIdx_;
 }
 
 size_t Cursor::journalRecordCount() const
 {
     struct stat st{ };
-    auto stat = fstat(d_->fd.get(), &st);
+    auto stat = fstat(fd_->get(), &st);
 
     if (stat)
     {
@@ -339,25 +330,24 @@ size_t Cursor::journalRecordCount() const
             "draft journal cursor: unable to determine journal record count (fstat)");
     }
 
-    if (st.st_size < 0 || static_cast<size_t>(st.st_size) <= d_->hashOffset)
+    if (st.st_size < 0 || static_cast<size_t>(st.st_size) <= hashOffset_)
         return 0;
 
-    return (static_cast<size_t>(st.st_size) - d_->hashOffset) / sizeof(Journal::HashRecord);
+    return (static_cast<size_t>(st.st_size) - hashOffset_) / sizeof(Journal::HashRecord);
 }
 
 size_t Cursor::journalHashOffset() const
 {
     auto buf = FileHeader{ };
-    util::readChunk(d_->fd.get(), &buf, sizeof(buf), 0);
+    util::readChunk(fd_->get(), &buf, sizeof(buf), 0);
 
     return buf.journalOffset;
 }
 
-Cursor::Cursor(ScopedFd fd):
-    Cursor()
+Cursor::Cursor(const std::shared_ptr<ScopedFd> &fd):
+    fd_(fd)
 {
-    d_->fd = std::move(fd);
-    d_->hashOffset = journalHashOffset();
+    hashOffset_ = journalHashOffset();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
