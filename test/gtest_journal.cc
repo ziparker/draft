@@ -283,12 +283,15 @@ TEST(iterator, begin_end)
     auto [janitor, journal] = setupJournal(1);
     constexpr auto hash0 = defaultHashRecord(0);
 
-    auto iter = journal.begin();
-    EXPECT_EQ(iter->hash, hash0.hash);
-    EXPECT_EQ((*iter).hash, hash0.hash);
+    auto first = journal.begin();
+    EXPECT_EQ(first->hash, hash0.hash);
+    EXPECT_EQ((*first).hash, hash0.hash);
 
-    iter = journal.end();
-    EXPECT_THROW(*iter, std::runtime_error);
+    auto last = journal.end();
+    EXPECT_THROW(*last, std::runtime_error);
+
+    first -= 1;
+    EXPECT_EQ(first, last);
 }
 
 TEST(iterator, inc_dec)
@@ -299,8 +302,14 @@ TEST(iterator, inc_dec)
     auto [janitor, journal] = setupJournal(2);
 
     auto iter = journal.begin();
-    auto last = journal.end();
+    const auto last = journal.end();
 
+    EXPECT_EQ(iter->hash, hash0.hash);
+
+    ++iter;
+    EXPECT_EQ(iter->hash, hash1.hash);
+
+    --iter;
     EXPECT_EQ(iter->hash, hash0.hash);
 
     ++iter;
@@ -319,4 +328,68 @@ TEST(iterator, inc_dec)
     EXPECT_TRUE(iter == last);
     EXPECT_EQ(old->hash, hash1.hash);
     EXPECT_THROW(iter->hash, std::runtime_error);
+}
+
+TEST(iterator, seek_op)
+{
+    constexpr auto hash0 = defaultHashRecord(0);
+    constexpr auto hash1 = defaultHashRecord(1);
+    constexpr auto hash2 = defaultHashRecord(2);
+    constexpr auto hash5 = defaultHashRecord(5);
+
+    auto [janitor, journal] = setupJournal(6);
+
+    auto iter = journal.begin();
+    auto last = journal.end();
+
+    ASSERT_EQ(iter->hash, hash0.hash);
+
+    iter += 5;
+    ASSERT_NE(iter, last);
+    EXPECT_EQ(iter->hash, hash5.hash);
+
+    iter -= 5;
+    ASSERT_NE(iter, last);
+    EXPECT_EQ(iter->hash, hash0.hash);
+
+    iter += 2;
+    EXPECT_EQ(iter->hash, hash2.hash);
+
+    iter -= 1;
+    EXPECT_EQ(iter->hash, hash1.hash);
+
+    // negative offset.
+    iter += -1;
+    EXPECT_EQ(iter->hash, hash0.hash);
+
+    // negative offset.
+    iter -= -1;
+    EXPECT_EQ(iter->hash, hash1.hash);
+}
+
+TEST(iterator, seek_invalid)
+{
+    constexpr auto hash0 = defaultHashRecord(0);
+
+    auto [janitor, journal] = setupJournal(6);
+
+    auto iter = journal.begin();
+    auto last = journal.end();
+
+    ASSERT_EQ(iter->hash, hash0.hash);
+
+    iter += 100;
+    EXPECT_TRUE(iter == last);
+
+//    iter = journal.begin();
+//    iter -= 100;
+//    EXPECT_EQ(iter, last);
+//
+//    iter = journal.begin();
+//    iter += -100;
+//    EXPECT_EQ(iter, last);
+//
+//    iter = journal.begin();
+//    iter -= -100;
+//    EXPECT_EQ(iter, last);
 }

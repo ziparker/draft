@@ -261,12 +261,14 @@ Cursor &Cursor::seek(off_t count, Whence whence)
         case Current:
             if (count < 0)
             {
-                if (idx == ~size_t{ } || countAbsSz > idx)
+                if (idx == ~size_t{ })
+                    idx = recordCount - countAbsSz;
+                else if (countAbsSz > idx)
                     idx = ~size_t{ };
                 else
                     idx -= countAbsSz;
             }
-            else if (idx + countAbsSz < idx)
+            else if (auto newIdx = idx + countAbsSz; newIdx < idx || newIdx >= recordCount)
             {
                 idx = ~size_t{ };
             }
@@ -278,7 +280,7 @@ Cursor &Cursor::seek(off_t count, Whence whence)
 
             break;
         case End:
-            if (count > 0 || countAbsSz > recordCount)
+            if (count >= 0 || countAbsSz > recordCount)
                 idx = ~size_t{ };
             else
                 idx = recordCount - countAbsSz;
