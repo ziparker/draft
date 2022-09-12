@@ -381,15 +381,19 @@ TEST(iterator, seek_invalid)
     iter += 100;
     EXPECT_TRUE(iter == last);
 
-//    iter = journal.begin();
-//    iter -= 100;
-//    EXPECT_EQ(iter, last);
-//
-//    iter = journal.begin();
-//    iter += -100;
-//    EXPECT_EQ(iter, last);
-//
-//    iter = journal.begin();
-//    iter -= -100;
-//    EXPECT_EQ(iter, last);
+    iter = journal.begin();
+    iter -= 100;
+    EXPECT_EQ(iter, last);
+
+    iter = journal.begin();
+    iter += -100;
+    EXPECT_EQ(iter, last);
+
+    iter = journal.begin();
+    iter -= -100;
+    EXPECT_EQ(iter, last);
+
+    iter = journal.begin();
+    iter -= -100;
+    EXPECT_EQ(iter, last);
 }
