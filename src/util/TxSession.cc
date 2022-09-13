@@ -24,11 +24,13 @@
  * SOFTWARE.
  */
 
+#include <filesystem>
 #include <iterator>
 
 #include <sys/stat.h>
 
 #include <draft/util/Hasher.hh>
+#include <draft/util/Journal.hh>
 #include <draft/util/Reader.hh>
 #include <draft/util/ScopedTimer.hh>
 #include <draft/util/Sender.hh>
@@ -59,6 +61,8 @@ TxSession::~TxSession() noexcept
 
 void TxSession::start(const std::string &path)
 {
+    namespace fs = std::filesystem;
+
     // TODO: should we also own the rx service connection, and send xfer
     // request here?
 
@@ -69,15 +73,18 @@ void TxSession::start(const std::string &path)
         std::make_move_iterator(begin(view)),
         std::make_move_iterator(end(view))};
 
+    // clear targets since we've moved them into senders.
     targetFds_ = std::vector<ScopedFd>{ };
 
     sendExec_.add(std::move(senders), ThreadExecutor::Options::DoFinalize);
 
+    info_ = getFileInfo(path);
+    journal_ = std::make_unique<Journal>(fs::path{path}/"hashlog", info_);
+
     // hashers are in a separate executor to make it easier to tell when read
     // execs finish.
-    hashExec_.add(util::Hasher{hashQueue_}, ThreadExecutor::Options::DoFinalize);
+    hashExec_.add(util::Hasher{hashQueue_, journal_}, ThreadExecutor::Options::DoFinalize);
 
-    info_ = getFileInfo(path);
     fileIter_ = nextFile(begin(info_), end(info_));
 }
 

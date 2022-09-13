@@ -37,6 +37,8 @@
 
 namespace draft::util {
 
+class Journal;
+
 class TxSession
 {
 public:
@@ -66,6 +68,7 @@ private:
     std::vector<FileInfo>::const_iterator fileIter_;
     SessionConfig conf_;
     std::vector<ScopedFd> targetFds_;
+    std::shared_ptr<Journal> journal_;
 };
 
 }

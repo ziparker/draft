@@ -33,12 +33,14 @@
 
 namespace draft::util {
 
+class Journal;
+
 class Hasher
 {
 public:
     using Buffer = BufferPool::Buffer;
 
-    explicit Hasher(BufQueue &queue);
+    Hasher(BufQueue &queue, const std::shared_ptr<Journal> &hashLog);
 
     bool runOnce(std::stop_token stopToken);
 
@@ -46,6 +48,7 @@ private:
     uint64_t hash(const BDesc &desc);
 
     BufQueue *queue_{ };
+    const std::shared_ptr<Journal> hashLog_{ };
 };
 
 }

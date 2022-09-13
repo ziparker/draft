@@ -26,14 +26,16 @@
 
 #include "xxhash.h"
 
+#include <draft/util/Journal.hh>
 #include <draft/util/Hasher.hh>
 #include <draft/util/ScopedTimer.hh>
 #include <draft/util/Stats.hh>
 
 namespace draft::util {
 
-Hasher::Hasher(BufQueue &queue):
-    queue_(&queue)
+Hasher::Hasher(BufQueue &queue, const std::shared_ptr<Journal> &hashLog):
+    queue_(&queue),
+    hashLog_(hashLog)
 {
 }
 
@@ -64,6 +66,12 @@ bool Hasher::runOnce(std::stop_token stopToken)
                 }};
 
             digest = hash(*desc);
+
+            hashLog_->writeHash(
+                desc->fileId,
+                desc->offset,
+                desc->len,
+                digest);
         }
 
         spdlog::info("hash: {:#x}", digest);
