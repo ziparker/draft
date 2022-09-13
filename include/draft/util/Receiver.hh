@@ -38,7 +38,7 @@ class Receiver
 public:
     using Buffer = BufferPool::Buffer;
 
-    Receiver(ScopedFd fd, BufQueue &queue);
+    Receiver(ScopedFd fd, BufQueue &queue, BufQueue *hashQueue = nullptr);
 
     bool runOnce(std::stop_token stopToken);
 
@@ -51,6 +51,7 @@ private:
 
     BufferPoolPtr pool_{ };
     BufQueue *queue_{ };
+    BufQueue *hashQueue_{ };
     wire::ChunkHeader header_{ };
     Buffer buf_{ };
     size_t offset_{ };

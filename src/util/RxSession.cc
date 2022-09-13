@@ -24,12 +24,15 @@
  * SOFTWARE.
  */
 
+#include <filesystem>
 #include <iterator>
 
 #include <sys/stat.h>
 
 #include <spdlog/spdlog.h>
 
+#include <draft/util/Hasher.hh>
+#include <draft/util/Journal.hh>
 #include <draft/util/Receiver.hh>
 #include <draft/util/RxSession.hh>
 #include <draft/util/Writer.hh>
@@ -41,6 +44,8 @@ RxSession::RxSession(SessionConfig conf):
 {
     pool_ = BufferPool::make(BufSize, 35);
     targetFds_ = bindNetworkTargets(conf_.targets);
+
+    hashQueue_.setSizeLimit(100);
 }
 
 RxSession::~RxSession() noexcept
@@ -50,7 +55,12 @@ RxSession::~RxSession() noexcept
 
 void RxSession::start(util::TransferRequest req)
 {
+    namespace fs = std::filesystem;
+
     createTargetFiles(conf_.pathRoot, req.config.fileInfo);
+
+    journal_ = std::make_unique<Journal>(fs::path{conf_.pathRoot}/"rx_hashlog", req.config.fileInfo);
+    hashExec_.add(util::Hasher{hashQueue_, journal_}, ThreadExecutor::Options::DoFinalize);
 
     auto fileInfo = std::vector<FileInfo>{ };
     auto fileMap = FdMap{ };
@@ -87,7 +97,7 @@ void RxSession::start(util::TransferRequest req)
     }
 
     const auto view = std::views::transform(
-        targetFds_, [this](auto &&fd){ return Receiver{std::move(fd), queue_}; });
+        targetFds_, [this](auto &&fd){ return Receiver{std::move(fd), queue_, &hashQueue_}; });
 
     auto receivers = std::vector<Receiver>{
         std::make_move_iterator(begin(view)),

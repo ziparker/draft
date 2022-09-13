@@ -35,6 +35,8 @@
 
 namespace draft::util {
 
+class Journal;
+
 class RxSession
 {
 public:
@@ -58,12 +60,15 @@ private:
     };
 
     WaitQueue<BDesc> queue_;
+    WaitQueue<BDesc> hashQueue_;
     std::shared_ptr<BufferPool> pool_;
     ThreadExecutor recvExec_;
     ThreadExecutor writeExec_;
+    ThreadExecutor hashExec_;
     SessionConfig conf_;
     std::vector<ScopedFd> targetFds_;
     std::vector<FileInfo> fileInfo_;
+    std::shared_ptr<Journal> journal_;
 };
 
 }

@@ -79,7 +79,7 @@ void TxSession::start(const std::string &path)
     sendExec_.add(std::move(senders), ThreadExecutor::Options::DoFinalize);
 
     info_ = getFileInfo(path);
-    journal_ = std::make_unique<Journal>(fs::path{path}/"hashlog", info_);
+    journal_ = std::make_unique<Journal>(fs::path{path}/"tx_hashlog", info_);
 
     // hashers are in a separate executor to make it easier to tell when read
     // execs finish.

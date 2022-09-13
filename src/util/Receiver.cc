@@ -33,8 +33,9 @@
 
 namespace draft::util {
 
-Receiver::Receiver(ScopedFd fd, BufQueue &queue):
+Receiver::Receiver(ScopedFd fd, BufQueue &queue, BufQueue *hashQueue):
     queue_(&queue),
+    hashQueue_(hashQueue),
     svcFd_(std::move(fd))
 {
     pool_ = BufferPool::make(BufSize, 35);
@@ -121,6 +122,12 @@ bool Receiver::waitData(std::stop_token stopToken)
 
         if (auto s = stats(header_.fileId))
             ++s->queuedBlockCount;
+
+        if (hashQueue_ && !hashQueue_->put({buf, header_.fileId, header_.fileOffset, header_.payloadLength}, 1ms))
+        {
+            spdlog::warn("receiver: unable to enqueue file {} offset {} len {} for hashing (queue full)."
+                , header_.fileId, header_.fileOffset, header_.payloadLength);
+        }
 
         haveHeader_ = false;
         offset_ = 0;
