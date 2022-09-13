@@ -95,15 +95,14 @@ Journal::Journal(std::string basename, const std::vector<util::FileInfo> &info)
     fd_ = ScopedFd{
         ::open(
             basename.c_str(),
-            O_WRONLY | O_CLOEXEC | O_CREAT | O_SYNC | O_EXCL,
+            O_WRONLY | O_CLOEXEC | O_CREAT | O_SYNC | O_TRUNC,
             S_IRUSR | S_IWUSR | S_IRGRP)};
 
     if (fd_.get() < 0)
     {
         throw std::system_error(errno, std::system_category(),
-            fmt::format("draft - unable to create journal file '{}': {}"
-                , basename
-                , std::strerror(errno)));
+            fmt::format("draft - unable to create journal file '{}'"
+                , basename));
     }
 
     writeHeader(info);
