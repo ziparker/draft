@@ -78,7 +78,7 @@ public:
      */
     explicit Journal(std::string basename, const std::vector<FileInfo> &info);
 
-    nlohmann::json fileInfo() const;
+    std::vector<util::FileInfo> fileInfo() const;
 
     void sync();
 

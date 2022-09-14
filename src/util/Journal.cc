@@ -43,7 +43,6 @@
 using std::chrono::system_clock;
 
 namespace draft::util {
-
 namespace {
 
 constexpr auto JournalHeaderOffset = 64u;
@@ -86,7 +85,7 @@ void to_json(nlohmann::json &j, const JournalHeader &header)
     };
 }
 
-void from_json(const nlohmann::json &j, JournalHeader &header)
+inline void from_json(const nlohmann::json &j, JournalHeader &header)
 {
     using namespace std::chrono;
 
@@ -109,16 +108,19 @@ FileHeader readFileHeader(int fd)
     return header;
 }
 
-JournalHeader readJournalHeader(int fd)
+nlohmann::json readJournalHeaderJson(int fd)
 {
-    auto header = JournalHeader{ };
+    const auto header = readFileHeader(fd);
 
-    util::readChunk(fd, &header, sizeof(header), JournalHeaderOffset);
+    auto cbor = std::vector<uint8_t>{ };
+    cbor.resize(header.cborSize);
 
-    return header;
+    util::readChunk(fd, cbor.data(), cbor.size(), JournalHeaderOffset);
+
+    return nlohmann::json::from_cbor(cbor);
 }
 
-}
+} // namespace anonymous
 
 namespace internal {
 
@@ -139,7 +141,7 @@ inline size_t journalRecordCount(int fd, size_t hashOffset)
     return (static_cast<size_t>(st.st_size) - hashOffset) / sizeof(Journal::HashRecord);
 }
 
-}
+} // namespace internal
 
 ////////////////////////////////////////////////////////////////////////////////
 // Journal
@@ -184,11 +186,14 @@ Journal::Journal(std::string basename, const std::vector<util::FileInfo> &info)
     path_ = std::move(basename);
 }
 
-nlohmann::json Journal::fileInfo() const
+std::vector<util::FileInfo> Journal::fileInfo() const
 {
-    const auto header = readJournalHeader(fd_.get());
+    const auto header = readJournalHeaderJson(fd_.get());
 
-    return { };
+    auto fileInfo = std::vector<util::FileInfo>{ };
+    header.at("file_info").get_to(fileInfo);
+
+    return fileInfo;
 }
 
 void Journal::sync()

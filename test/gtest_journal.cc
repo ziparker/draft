@@ -170,6 +170,46 @@ TEST(journal, open_readonly)
     EXPECT_EQ(2u, j2.hashCount());
 }
 
+TEST(journal, write_readonly_info)
+{
+    const auto basename = tempFilename("/tmp/journal");
+    auto janitor = FileJanitor{basename + ".draft"};
+
+    auto j = Journal(basename, {
+        {
+            "foo",
+            { },
+            {
+                0644,
+                1000,
+                1000,
+                0,
+                512,
+                1,
+                84
+            },
+            42
+        }
+    });
+    ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
+
+    const auto j2 = Journal(basename);
+    const auto info = j2.fileInfo();
+
+    EXPECT_FALSE(info.empty());
+
+    const auto &info0 = info[0];
+    EXPECT_STREQ(info0.path.c_str(), "foo");
+    EXPECT_TRUE(info0.targetSuffix.empty());
+    EXPECT_EQ(info0.status.uid, 1000);
+    EXPECT_EQ(info0.status.gid, 1000);
+    EXPECT_EQ(info0.status.dev, 0);
+    EXPECT_EQ(info0.status.blkSize, 512);
+    EXPECT_EQ(info0.status.blkCount, 1);
+    EXPECT_EQ(info0.status.size, 84);
+    EXPECT_EQ(info0.id, 42);
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Cursor
 
