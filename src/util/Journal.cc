@@ -84,6 +84,20 @@ void to_json(nlohmann::json &j, const JournalHeader &header)
     };
 }
 
+void from_json(const nlohmann::json &j, JournalHeader &header)
+{
+    using namespace std::chrono;
+
+    int64_t nsec{ };
+
+    j.at("version_major").get_to(header.versionMajor);
+    j.at("version_minor").get_to(header.versionMinor);
+    j.at("birthdate_epoch_nsec").get_to(nsec);
+    j.at("journal_alignment").get_to(header.journalAlignment);
+
+    header.birthdate = system_clock::time_point{nanoseconds{nsec}};
+}
+
 FileHeader readFileHeader(int fd)
 {
     auto header = FileHeader{ };
@@ -154,6 +168,10 @@ Journal::Journal(std::string basename, const std::vector<util::FileInfo> &info)
 
 nlohmann::json Journal::fileInfo() const
 {
+    const auto header = readJournalHeader(fd_.get());
+
+    
+
     return { };
 }
 
