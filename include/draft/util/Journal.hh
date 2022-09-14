@@ -95,7 +95,7 @@ private:
     void writeFileData(const void *data, size_t size);
     void writeHashRecord(const HashRecord &record);
 
-    bool fileHeaderOK() const;
+    void checkFileHeader() const;
 
     ScopedFd fd_;
     std::string path_;

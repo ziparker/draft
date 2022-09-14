@@ -32,8 +32,10 @@
 #include <unistd.h>
 
 #include <nlohmann/json.hpp>
-#include <spdlog/fmt/fmt.h>
 #include <spdlog/spdlog.h>
+// include after spdog.
+#include <spdlog/fmt/bin_to_hex.h>
+#include <spdlog/fmt/fmt.h>
 
 #include <draft/util/Journal.hh>
 #include <draft/util/UtilJson.hh>
@@ -155,12 +157,7 @@ Journal::Journal(std::string basename)
                 , basename));
     }
 
-    if (!fileHeaderOK())
-    {
-        throw std::runtime_error(fmt::format(
-            "journal: invalid file header for file {}"
-            , basename));
-    }
+    checkFileHeader();
 
     path_ = std::move(basename);
 }
@@ -237,7 +234,7 @@ void Journal::writeHeader(const std::vector<util::FileInfo> &info)
 
     const auto cborSize = buf.size() - JournalHeaderOffset;
 
-    // pad buffer so that the journal data which follows it will be alligned to
+    // pad buffer so that the journal data which follows it will be aligned to
     // the journal block size.
     buf.resize((buf.size() + JournalBlockSize - 1) & ~(JournalBlockSize - 1));
 
@@ -302,24 +299,41 @@ void Journal::writeHashRecord(const HashRecord &record)
     }
 }
 
-bool Journal::fileHeaderOK() const
+void Journal::checkFileHeader() const
 {
     namespace fs = std::filesystem;
 
     struct stat st{ };
 
     if (::fstat(fd_.get(), &st) < 0)
-        throw std::system_error(errno, std::system_category(), "journal");
+        throw std::system_error(errno, std::system_category(), "journal file header check");
 
     const auto header = readFileHeader(fd_.get());
 
-    return
-        header.journalOffset + header.cborSize > header.journalOffset &&
-        header.journalOffset + header.cborSize < std::numeric_limits<off_t>::max() &&
-        header.journalOffset + header.cborSize <= static_cast<size_t>(st.st_size) &&
-        std::ranges::equal(
-            header.magic, header.magic + sizeof(header.magic),
-            FileHeader::Magic, FileHeader::Magic + sizeof(header.magic));
+    if (header.journalOffset >= std::numeric_limits<off_t>::max())
+    {
+        throw std::runtime_error(fmt::format(
+            "journal: file header cbor payload size is too large (for off_t): {} from offset {}"
+            , header.cborSize
+            , header.journalOffset));
+    }
+
+    if (header.journalOffset > static_cast<size_t>(st.st_size))
+    {
+        throw std::runtime_error(fmt::format(
+            "journal: file header journal offset + cbor payload size {} is larger than journal file size {}"
+            , header.journalOffset + header.cborSize
+            , st.st_size));
+    }
+
+    if (!std::ranges::equal(
+        header.magic, header.magic + sizeof(header.magic),
+        FileHeader::Magic, FileHeader::Magic + sizeof(header.magic)))
+    {
+        throw std::runtime_error(fmt::format(
+            "journal: file header has invalid magic: {:spn}"
+            , spdlog::to_hex(header.magic, header.magic + sizeof(header.magic))));
+    }
 }
 
 Cursor Journal::cursor() const
