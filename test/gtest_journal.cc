@@ -28,6 +28,7 @@
 #include <filesystem>
 
 #include <gtest/gtest.h>
+#include <spdlog/spdlog.h>
 
 #include <draft/util/Journal.hh>
 
@@ -292,6 +293,19 @@ TEST(iterator, begin_end)
 
     first -= 1;
     EXPECT_EQ(first, last);
+}
+
+TEST(iterator, range)
+{
+    static constexpr auto count = size_t{5};
+
+    auto [janitor, journal] = setupJournal(count);
+
+    size_t i = 0;
+    for (const auto &rec : journal)
+        ++i;
+
+    EXPECT_EQ(i, count);
 }
 
 TEST(iterator, inc_dec)

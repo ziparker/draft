@@ -34,6 +34,8 @@
 
 #include <strings.h>
 
+#include <nlohmann/json.hpp>
+
 #include "ScopedFd.hh"
 #include "Util.hh"
 
@@ -58,7 +60,25 @@ public:
 
     using const_iterator = CursorIter;
 
+    /**
+     * Open the specified journal for reading.
+     *
+     * @param basename the path of the journal file to create, w/o extension.
+     */
+    explicit Journal(std::string basename);
+
+    /**
+     * Open the specified journal for writing.
+     *
+     * If the file exists, it is truncated to zero bytes prior to adding the
+     * file info.
+     *
+     * @param basename The path of the journal file to create, w/o extension.
+     * @param info The file info data to write to the start of the journal.
+     */
     explicit Journal(std::string basename, const std::vector<FileInfo> &info);
+
+    nlohmann::json fileInfo() const;
 
     void sync();
 
@@ -72,6 +92,8 @@ private:
     void writeHeader(const std::vector<FileInfo> &info);
     void writeFileData(const void *data, size_t size);
     void writeHashRecord(const HashRecord &record);
+
+    bool fileHeaderOK() const;
 
     ScopedFd fd_;
     std::string path_;

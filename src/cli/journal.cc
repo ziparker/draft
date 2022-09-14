@@ -39,6 +39,8 @@
 namespace draft::cmd {
 namespace {
 
+using draft::util::Journal;
+
 struct Options
 {
     struct Operations
@@ -103,13 +105,21 @@ Options parseOptions(int argc, char **argv)
     return opts;
 }
 
+void processJournal(const std::string &journalPath, const Options &opts)
+{
+    auto journal = Journal{journalPath};
+
+//    auto [begin, end] = journal.();
+}
+
 }
 
 int journal(int argc, char **argv)
 {
-    using namespace draft::util;
-
     const auto opts = parseOptions(argc, argv);
+
+    for (const auto &journal : opts.journals)
+        processJournal(journal, opts);
 
     return 0;
 }

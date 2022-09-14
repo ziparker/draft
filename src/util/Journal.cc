@@ -49,7 +49,8 @@ constexpr auto JournalBlockSize = 512u;
 
 struct FileHeader
 {
-    char magic[8]{'D','R','A','F','T','J','F',' '};
+    static constexpr char Magic[] = {'D','R','A','F','T','J','F',' '};
+    char magic[8]{ };
 
     uint64_t journalOffset{ };
     uint64_t cborSize{ };
@@ -83,10 +84,51 @@ void to_json(nlohmann::json &j, const JournalHeader &header)
     };
 }
 
+FileHeader readFileHeader(int fd)
+{
+    auto header = FileHeader{ };
+
+    util::readChunk(fd, &header, sizeof(header), 0);
+
+    return header;
+}
+
+JournalHeader readJournalHeader(int fd)
+{
+    auto header = JournalHeader{ };
+
+    util::readChunk(fd, &header, sizeof(header), JournalHeaderOffset);
+
+    return header;
+}
+
 }
 
 ////////////////////////////////////////////////////////////////////////////////
 // Journal
+
+Journal::Journal(std::string basename)
+{
+    basename += ".draft";
+
+    fd_ = ScopedFd{::open(basename.c_str(), O_RDONLY | O_CLOEXEC)};
+
+    if (fd_.get() < 0)
+    {
+        throw std::system_error(errno, std::system_category(),
+            fmt::format("draft - unable to open journal file '{}'"
+                , basename));
+    }
+
+    if (!fileHeaderOK())
+    {
+        throw std::runtime_error(fmt::format(
+            "journal: invalid file header for file {}"
+            , basename));
+    }
+
+    path_ = std::move(basename);
+}
 
 Journal::Journal(std::string basename, const std::vector<util::FileInfo> &info)
 {
@@ -108,6 +150,11 @@ Journal::Journal(std::string basename, const std::vector<util::FileInfo> &info)
     writeHeader(info);
 
     path_ = std::move(basename);
+}
+
+nlohmann::json Journal::fileInfo() const
+{
+    return { };
 }
 
 void Journal::sync()
@@ -159,6 +206,7 @@ void Journal::writeHeader(const std::vector<util::FileInfo> &info)
 
     auto fileHeader = reinterpret_cast<FileHeader *>(buf.data());
     *fileHeader = FileHeader{ };
+    std::copy(FileHeader::Magic, FileHeader::Magic + sizeof(FileHeader::Magic), fileHeader->magic);
     fileHeader->journalOffset = htole64(buf.size());
     fileHeader->cborSize = htole64(cborSize);
 
@@ -209,6 +257,26 @@ void Journal::writeHashRecord(const HashRecord &record)
                 , record.size
                 , record.hash));
     }
+}
+
+bool Journal::fileHeaderOK() const
+{
+    namespace fs = std::filesystem;
+
+    struct stat st{ };
+
+    if (::fstat(fd_.get(), &st) < 0)
+        throw std::system_error(errno, std::system_category(), "journal");
+
+    const auto header = readFileHeader(fd_.get());
+
+    return
+        header.journalOffset + header.cborSize > header.journalOffset &&
+        header.journalOffset + header.cborSize < std::numeric_limits<off_t>::max() &&
+        header.journalOffset + header.cborSize <= static_cast<size_t>(st.st_size) &&
+        std::ranges::equal(
+            header.magic, header.magic + sizeof(header.magic),
+            FileHeader::Magic, FileHeader::Magic + sizeof(header.magic));
 }
 
 Cursor Journal::cursor() const
