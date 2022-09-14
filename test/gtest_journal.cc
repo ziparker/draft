@@ -102,6 +102,9 @@ std::pair<FileJanitor, Journal> setupJournal(size_t hashCount = 0)
 
 } // namespace
 
+////////////////////////////////////////////////////////////////////////////////
+// Journal
+
 TEST(journal, ctor_empty_info)
 {
     const auto basename = tempFilename("/tmp/journal");
@@ -166,6 +169,9 @@ TEST(journal, open_readonly)
     ASSERT_EQ(0, j.writeHash(0, 1024, 512, 0x1122334455667788));
     EXPECT_EQ(2u, j2.hashCount());
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// Cursor
 
 TEST(cursor, no_hash)
 {
@@ -316,6 +322,9 @@ TEST(cursor, record)
     rec = c.hashRecord();
     EXPECT_TRUE(recordMatches(*rec, hash1));
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// iterator
 
 TEST(iterator, begin_end)
 {
