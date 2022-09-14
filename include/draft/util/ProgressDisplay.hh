@@ -85,8 +85,22 @@ inline WinSize winSize()
 inline std::ostream &operator<<(std::ostream &stream, const ETA &e)
 {
     using namespace std::chrono;
+    using namespace std::chrono_literals;
 
-    const auto d = duration<double>(e.duration);
+    const auto d = duration<double>{e.duration};
+
+    if (d > 24h)
+        return stream << "more than a day. is your network healthy?";
+
+    if (d > 10h)
+        return stream << "a long while (> 10h)";
+
+    if (d > 5h)
+        return stream << "a good while (> 5h)";
+
+    if (d > 2h)
+        return stream << "a while (> 2h)";
+
     const auto h = duration_cast<hours>(d);
     const auto m = duration_cast<minutes>(d - h);
     const auto s = duration_cast<seconds>(d - h - m);
@@ -334,7 +348,6 @@ public:
 
         if (pct >= 1.0f && line.completionTime == Clock::time_point{ })
             line.completionTime = Clock::now();
-            
     }
 
     void add(const std::string &key, float pct = 0.0f)

@@ -183,10 +183,10 @@ int Receiver::read()
     if (!len)
         return EOF;
 
-    stats().netByteCount += len;
+    stats().netByteCount += static_cast<size_t>(len);
 
     if (auto s = stats(header_.fileId))
-        s->netByteCount += len;
+        s->netByteCount += static_cast<size_t>(len);
 
     offset_ += static_cast<size_t>(len);
 

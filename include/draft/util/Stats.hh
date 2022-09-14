@@ -38,11 +38,11 @@ namespace draft::util {
 
 struct Stats
 {
-    std::atomic_uint diskByteCount{ };
-    std::atomic_uint queuedBlockCount{ };
-    std::atomic_uint dequeuedBlockCount{ };
-    std::atomic_uint netByteCount{ };
-    std::atomic_uint fileByteCount{ };
+    std::atomic_uint64_t diskByteCount{ };
+    std::atomic_uint64_t queuedBlockCount{ };
+    std::atomic_uint64_t dequeuedBlockCount{ };
+    std::atomic_uint64_t netByteCount{ };
+    std::atomic_uint64_t fileByteCount{ };
 };
 
 struct StatsManager
@@ -109,7 +109,7 @@ struct BandwidthMonitor
     }
 
     Sample prevSample_{ };
-    double avg_{ };
+    double avg_{1e9};
 };
 
 inline StatsManager &statsMgr()
