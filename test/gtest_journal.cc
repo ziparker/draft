@@ -129,6 +129,44 @@ TEST(journal, single_hash_write)
     ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
 }
 
+TEST(journal, hash_count)
+{
+    const auto basename = tempFilename("/tmp/journal");
+    auto janitor = FileJanitor{basename + ".draft"};
+
+    auto j = Journal(basename, { });
+    EXPECT_EQ(0u, j.hashCount());
+
+    ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
+    EXPECT_EQ(1u, j.hashCount());
+
+    ASSERT_EQ(0, j.writeHash(0, 1024, 512, 0x1122334455667788));
+    EXPECT_EQ(2u, j.hashCount());
+}
+
+TEST(journal, open_readonly_invalid)
+{
+    const auto basename = tempFilename("/tmp/journal");
+    auto janitor = FileJanitor{basename + ".draft"};
+
+    EXPECT_THROW(Journal{basename}, std::runtime_error);
+}
+
+TEST(journal, open_readonly)
+{
+    const auto basename = tempFilename("/tmp/journal");
+    auto janitor = FileJanitor{basename + ".draft"};
+
+    auto j = Journal(basename, { });
+    ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
+
+    auto j2 = Journal(basename);
+    EXPECT_EQ(1u, j2.hashCount());
+
+    ASSERT_EQ(0, j.writeHash(0, 1024, 512, 0x1122334455667788));
+    EXPECT_EQ(2u, j2.hashCount());
+}
+
 TEST(cursor, no_hash)
 {
     const auto basename = tempFilename("/tmp/journal");
@@ -303,7 +341,10 @@ TEST(iterator, range)
 
     size_t i = 0;
     for (const auto &rec : journal)
+    {
+        EXPECT_EQ(rec.offset, (i + 1) * 512);
         ++i;
+    }
 
     EXPECT_EQ(i, count);
 }

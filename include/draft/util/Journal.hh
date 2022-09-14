@@ -84,6 +84,8 @@ public:
 
     int writeHash(uint16_t fileId, size_t offset, size_t size, uint64_t hash);
 
+    size_t hashCount() const;
+
     Cursor cursor() const;
     const_iterator begin() const;
     const_iterator end() const;

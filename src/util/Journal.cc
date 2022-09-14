@@ -118,6 +118,27 @@ JournalHeader readJournalHeader(int fd)
 
 }
 
+namespace internal {
+
+inline size_t journalRecordCount(int fd, size_t hashOffset)
+{
+    struct stat st{ };
+    auto stat = fstat(fd, &st);
+
+    if (stat)
+    {
+        throw std::system_error(errno, std::system_category(),
+            "draft journal cursor: unable to determine journal record count (fstat)");
+    }
+
+    if (st.st_size < 0 || static_cast<size_t>(st.st_size) <= hashOffset)
+        return 0;
+
+    return (static_cast<size_t>(st.st_size) - hashOffset) / sizeof(Journal::HashRecord);
+}
+
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Journal
 
@@ -151,7 +172,7 @@ Journal::Journal(std::string basename, const std::vector<util::FileInfo> &info)
     fd_ = ScopedFd{
         ::open(
             basename.c_str(),
-            O_WRONLY | O_CLOEXEC | O_CREAT | O_SYNC | O_TRUNC,
+            O_RDWR | O_CLOEXEC | O_CREAT | O_SYNC | O_TRUNC,
             S_IRUSR | S_IWUSR | S_IRGRP)};
 
     if (fd_.get() < 0)
@@ -169,8 +190,6 @@ Journal::Journal(std::string basename, const std::vector<util::FileInfo> &info)
 nlohmann::json Journal::fileInfo() const
 {
     const auto header = readJournalHeader(fd_.get());
-
-    
 
     return { };
 }
@@ -246,6 +265,12 @@ void Journal::writeHeader(const std::vector<util::FileInfo> &info)
     }
 
     writeFileData(buf.data(), buf.size());
+}
+
+size_t Journal::hashCount() const
+{
+    const auto header = readFileHeader(fd_.get());
+    return internal::journalRecordCount(fd_.get(), header.journalOffset);
 }
 
 void Journal::writeFileData(const void *data, size_t size)
@@ -408,27 +433,14 @@ size_t Cursor::position() const
 
 size_t Cursor::journalRecordCount() const
 {
-    struct stat st{ };
-    auto stat = fstat(fd_->get(), &st);
-
-    if (stat)
-    {
-        throw std::system_error(errno, std::system_category(),
-            "draft journal cursor: unable to determine journal record count (fstat)");
-    }
-
-    if (st.st_size < 0 || static_cast<size_t>(st.st_size) <= hashOffset_)
-        return 0;
-
-    return (static_cast<size_t>(st.st_size) - hashOffset_) / sizeof(Journal::HashRecord);
+    return internal::journalRecordCount(fd_->get(), hashOffset_);
 }
 
 size_t Cursor::journalHashOffset() const
 {
-    auto buf = FileHeader{ };
-    util::readChunk(fd_->get(), &buf, sizeof(buf), 0);
+    const auto header = readFileHeader(fd_->get());
 
-    return buf.journalOffset;
+    return header.journalOffset;
 }
 
 Cursor::Cursor(const std::shared_ptr<ScopedFd> &fd):
