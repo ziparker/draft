@@ -50,6 +50,7 @@ int dispatchSubcommand(int argc, char **argv)
     using namespace draft;
 
     const auto subProgs = std::map<std::string, Cmd>{
+        {"journal", cmd::journal},
         {"send", cmd::send},
         {"recv", cmd::recv},
         #ifdef DRAFT_HAVE_COMPRESS

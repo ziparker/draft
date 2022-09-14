@@ -107,6 +107,7 @@ list(APPEND DRAFTUTIL_SRC
 
 list(APPEND DRAFTCLI_SRC
     src/cli/draft.cc
+    src/cli/journal.cc
     src/cli/transfer.cc)
 
 if (blosc2_LIBRARY AND blosc2_INCLUDE_DIRS)
