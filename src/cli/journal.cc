@@ -45,7 +45,8 @@ struct Options
 {
     struct Operations
     {
-        unsigned dump : 1u;
+        unsigned dumpInfo   : 0x01;
+        unsigned dumpHashes : 0x02;
     };
 
     std::vector<std::string> journals{ };
@@ -54,6 +55,13 @@ struct Options
 
 Options parseOptions(int argc, char **argv)
 {
+    using namespace std::string_literals;
+
+    enum LongOpts
+    {
+        DumpInfo,
+        DumpHashes
+    };
     static constexpr const char *shortOpts = "hd:";
     static constexpr struct option longOpts[] = {
         {"help", no_argument, nullptr, 'h'},
@@ -80,7 +88,10 @@ Options parseOptions(int argc, char **argv)
                 usage();
                 std::exit(0);
             case 'd':
-                opts.ops.dump = 1;
+                if (optarg == "info"s)
+                    opts.ops.dumpInfo = 1;
+                else if (optarg == "hashes"s)
+                    opts.ops.dumpHashes = 1;
                 break;
             case '?':
                 std::exit(1);
@@ -105,11 +116,44 @@ Options parseOptions(int argc, char **argv)
     return opts;
 }
 
+void dumpFileInfo(const Journal &journal)
+{
+    const auto &info = journal.fileInfo();
+
+    for (const auto &item : info)
+    {
+        spdlog::info(
+            "{:o}\t{}\t{}\t{}"
+            , item.status.mode
+            , item.status.uid
+            , item.status.gid
+            , item.status.size
+            , item.path);
+    }
+}
+
+void dumpHashes(const Journal &journal)
+{
+    for (const auto &rec : journal)
+    {
+        spdlog::info(
+            "{} @{} for {}: {:#016x}"
+            , rec.fileId
+            , rec.offset
+            , rec.size
+            , rec.hash);
+    }
+}
+
 void processJournal(const std::string &journalPath, const Options &opts)
 {
     auto journal = Journal{journalPath};
 
-//    auto [begin, end] = journal.();
+    if (opts.ops.dumpInfo)
+        dumpFileInfo(journal);
+
+    if (opts.ops.dumpHashes)
+        dumpHashes(journal);
 }
 
 }
