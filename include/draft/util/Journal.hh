@@ -27,6 +27,7 @@
 #ifndef __DRAFT_UTIL_JOURNAL_HH__
 #define __DRAFT_UTIL_JOURNAL_HH__
 
+#include <chrono>
 #include <optional>
 #include <span>
 #include <system_error>
@@ -79,6 +80,8 @@ public:
     explicit Journal(std::string path, const std::vector<FileInfo> &info);
 
     std::vector<util::FileInfo> fileInfo() const;
+
+    std::chrono::system_clock::time_point creationDate() const;
 
     void sync();
 

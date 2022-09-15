@@ -47,6 +47,7 @@ struct Options
     {
         unsigned dumpInfo   : 0x01;
         unsigned dumpHashes : 0x02;
+        unsigned dumpBirthdate  : 0x04;
     };
 
     std::vector<std::string> journals{ };
@@ -74,7 +75,8 @@ Options parseOptions(int argc, char **argv)
 
     const auto usage = [argv] {
             spdlog::info(
-                "usage: {} journal [-d][-h] <journal file>\n"
+                "usage: {} journal [-d <type> [-d ...]][-h] <journal file>\n"
+                "   dump types: birthdate, hashes, info"
                 , ::basename(argv[0]));
         };
 
@@ -88,10 +90,12 @@ Options parseOptions(int argc, char **argv)
                 usage();
                 std::exit(0);
             case 'd':
-                if (optarg == "info"s)
-                    opts.ops.dumpInfo = 1;
+                if (optarg == "birthdate"s)
+                    opts.ops.dumpBirthdate = 1;
                 else if (optarg == "hashes"s)
                     opts.ops.dumpHashes = 1;
+                else if (optarg == "info"s)
+                    opts.ops.dumpInfo = 1;
                 break;
             case '?':
                 std::exit(1);
@@ -115,6 +119,28 @@ Options parseOptions(int argc, char **argv)
     return opts;
 }
 
+void dumpBirthdate(const Journal &journal)
+{
+    using namespace std;
+
+    spdlog::info(
+        "journal creation date: {}"
+        , journal.creationDate().time_since_epoch().count());
+}
+
+void dumpHashes(const Journal &journal)
+{
+    for (const auto &rec : journal)
+    {
+        spdlog::info(
+            "{} @ {} for {}: {:#016x}"
+            , rec.fileId
+            , rec.offset
+            , rec.size
+            , rec.hash);
+    }
+}
+
 void dumpFileInfo(const Journal &journal)
 {
     const auto &info = journal.fileInfo();
@@ -122,7 +148,8 @@ void dumpFileInfo(const Journal &journal)
     for (const auto &item : info)
     {
         spdlog::info(
-            "{:o}\t{}\t{}\t{}"
+            "{}: {:o}\t{}\t{}\t{}\t{}"
+            , item.id
             , item.status.mode
             , item.status.uid
             , item.status.gid
@@ -131,22 +158,12 @@ void dumpFileInfo(const Journal &journal)
     }
 }
 
-void dumpHashes(const Journal &journal)
-{
-    for (const auto &rec : journal)
-    {
-        spdlog::info(
-            "{} @{} for {}: {:#016x}"
-            , rec.fileId
-            , rec.offset
-            , rec.size
-            , rec.hash);
-    }
-}
-
 void processJournal(const std::string &journalPath, const Options &opts)
 {
     auto journal = Journal{journalPath};
+
+    if (opts.ops.dumpBirthdate)
+        dumpBirthdate(journal);
 
     if (opts.ops.dumpInfo)
         dumpFileInfo(journal);

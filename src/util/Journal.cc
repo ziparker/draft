@@ -192,6 +192,18 @@ std::vector<util::FileInfo> Journal::fileInfo() const
     return fileInfo;
 }
 
+std::chrono::system_clock::time_point Journal::creationDate() const
+{
+    using namespace std::chrono;
+
+    const auto header = readJournalHeaderJson(fd_.get());
+
+    uint64_t nsec{ };
+    header.at("birthdate_epoch_nsec").get_to(nsec);
+
+    return system_clock::time_point{nanoseconds{nsec}};
+}
+
 void Journal::sync()
 {
     if (::syncfs(fd_.get()) < 0)
