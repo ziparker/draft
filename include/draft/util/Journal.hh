@@ -63,9 +63,9 @@ public:
     /**
      * Open the specified journal for reading.
      *
-     * @param basename the path of the journal file to create, w/o extension.
+     * @param path The path of the journal file to create.
      */
-    explicit Journal(std::string basename);
+    explicit Journal(std::string path);
 
     /**
      * Open the specified journal for writing.
@@ -73,10 +73,10 @@ public:
      * If the file exists, it is truncated to zero bytes prior to adding the
      * file info.
      *
-     * @param basename The path of the journal file to create, w/o extension.
+     * @param path The path of the journal file to create.
      * @param info The file info data to write to the start of the journal.
      */
-    explicit Journal(std::string basename, const std::vector<FileInfo> &info);
+    explicit Journal(std::string path, const std::vector<FileInfo> &info);
 
     std::vector<util::FileInfo> fileInfo() const;
 

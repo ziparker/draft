@@ -86,10 +86,10 @@ std::pair<FileJanitor, Journal> setupJournal(size_t hashCount = 0)
 {
     const auto basename = tempFilename("/tmp/journal");
 
-    auto janitor = FileJanitor{basename + ".draft"};
+    auto janitor = FileJanitor{basename};
     auto journal = Journal(basename, { });
 
-    fs::exists(basename + ".draft");
+    fs::exists(basename);
 
     for (size_t i = 0; i < hashCount; ++i)
     {
@@ -108,12 +108,12 @@ std::pair<FileJanitor, Journal> setupJournal(size_t hashCount = 0)
 TEST(journal, ctor_empty_info)
 {
     const auto basename = tempFilename("/tmp/journal");
-    const auto filename = basename + ".draft";
+    const auto filename = basename;
     auto janitor = FileJanitor{filename};
 
     auto j = Journal(basename, { });
 
-    ASSERT_TRUE(fs::exists(basename + ".draft"));
+    ASSERT_TRUE(fs::exists(basename));
 
     const auto sz = fs::file_size(filename);
 
@@ -125,17 +125,17 @@ TEST(journal, ctor_empty_info)
 TEST(journal, single_hash_write)
 {
     const auto basename = tempFilename("/tmp/journal");
-    auto janitor = FileJanitor{basename + ".draft"};
+    auto janitor = FileJanitor{basename};
 
     auto j = Journal(basename, { });
-    ASSERT_TRUE(fs::exists(basename + ".draft"));
+    ASSERT_TRUE(fs::exists(basename));
     ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
 }
 
 TEST(journal, hash_count)
 {
     const auto basename = tempFilename("/tmp/journal");
-    auto janitor = FileJanitor{basename + ".draft"};
+    auto janitor = FileJanitor{basename};
 
     auto j = Journal(basename, { });
     EXPECT_EQ(0u, j.hashCount());
@@ -150,7 +150,7 @@ TEST(journal, hash_count)
 TEST(journal, open_readonly_invalid)
 {
     const auto basename = tempFilename("/tmp/journal");
-    auto janitor = FileJanitor{basename + ".draft"};
+    auto janitor = FileJanitor{basename};
 
     EXPECT_THROW(Journal{basename}, std::runtime_error);
 }
@@ -158,7 +158,7 @@ TEST(journal, open_readonly_invalid)
 TEST(journal, open_readonly)
 {
     const auto basename = tempFilename("/tmp/journal");
-    auto janitor = FileJanitor{basename + ".draft"};
+    auto janitor = FileJanitor{basename};
 
     auto j = Journal(basename, { });
     ASSERT_EQ(0, j.writeHash(0, 512, 512, 0x1122334455667788));
@@ -173,7 +173,7 @@ TEST(journal, open_readonly)
 TEST(journal, write_readonly_info)
 {
     const auto basename = tempFilename("/tmp/journal");
-    auto janitor = FileJanitor{basename + ".draft"};
+    auto janitor = FileJanitor{basename};
 
     auto j = Journal(basename, {
         {
@@ -216,10 +216,10 @@ TEST(journal, write_readonly_info)
 TEST(cursor, no_hash)
 {
     const auto basename = tempFilename("/tmp/journal");
-    auto janitor = FileJanitor{basename + ".draft"};
+    auto janitor = FileJanitor{basename};
 
     auto j = Journal(basename, { });
-    ASSERT_TRUE(fs::exists(basename + ".draft"));
+    ASSERT_TRUE(fs::exists(basename));
 
     auto c = j.cursor();
     EXPECT_FALSE(c.valid());
@@ -247,10 +247,10 @@ TEST(cursor, no_hash)
 TEST(cursor, seek)
 {
     const auto basename = tempFilename("/tmp/journal");
-    auto janitor = FileJanitor{basename + ".draft"};
+    auto janitor = FileJanitor{basename};
 
     auto j = Journal(basename, { });
-    ASSERT_TRUE(fs::exists(basename + ".draft"));
+    ASSERT_TRUE(fs::exists(basename));
 
     auto c = j.cursor();
     EXPECT_FALSE(c.valid());
@@ -288,10 +288,10 @@ TEST(cursor, seek)
 TEST(cursor, eventual_hash)
 {
     const auto basename = tempFilename("/tmp/journal");
-    auto janitor = FileJanitor{basename + ".draft"};
+    auto janitor = FileJanitor{basename};
 
     auto j = Journal(basename, { });
-    ASSERT_TRUE(fs::exists(basename + ".draft"));
+    ASSERT_TRUE(fs::exists(basename));
 
     auto c = j.cursor();
     EXPECT_FALSE(c.valid());

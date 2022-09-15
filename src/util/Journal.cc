@@ -146,31 +146,27 @@ inline size_t journalRecordCount(int fd, size_t hashOffset)
 ////////////////////////////////////////////////////////////////////////////////
 // Journal
 
-Journal::Journal(std::string basename)
+Journal::Journal(std::string path)
 {
-    basename += ".draft";
-
-    fd_ = ScopedFd{::open(basename.c_str(), O_RDONLY | O_CLOEXEC)};
+    fd_ = ScopedFd{::open(path.c_str(), O_RDONLY | O_CLOEXEC)};
 
     if (fd_.get() < 0)
     {
         throw std::system_error(errno, std::system_category(),
             fmt::format("draft - unable to open journal file '{}'"
-                , basename));
+                , path));
     }
 
     checkFileHeader();
 
-    path_ = std::move(basename);
+    path_ = std::move(path);
 }
 
-Journal::Journal(std::string basename, const std::vector<util::FileInfo> &info)
+Journal::Journal(std::string path, const std::vector<util::FileInfo> &info)
 {
-    basename += ".draft";
-
     fd_ = ScopedFd{
         ::open(
-            basename.c_str(),
+            path.c_str(),
             O_RDWR | O_CLOEXEC | O_CREAT | O_SYNC | O_TRUNC,
             S_IRUSR | S_IWUSR | S_IRGRP)};
 
@@ -178,12 +174,12 @@ Journal::Journal(std::string basename, const std::vector<util::FileInfo> &info)
     {
         throw std::system_error(errno, std::system_category(),
             fmt::format("draft - unable to create journal file '{}'"
-                , basename));
+                , path));
     }
 
     writeHeader(info);
 
-    path_ = std::move(basename);
+    path_ = std::move(path);
 }
 
 std::vector<util::FileInfo> Journal::fileInfo() const

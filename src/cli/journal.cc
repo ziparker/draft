@@ -106,7 +106,6 @@ Options parseOptions(int argc, char **argv)
         std::exit(1);
     }
 
-    spdlog::info("optind: {} argc: {}", optind, subArgc);
     opts.journals.insert(end(opts.journals), subArgv + optind, subArgv + subArgc);
 
     spdlog::info("journals ({}):", opts.journals.size());
