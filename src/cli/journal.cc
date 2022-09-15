@@ -24,6 +24,7 @@
  * SOFTWARE.
  */
 
+#include <iostream>
 #include <string>
 #include <vector>
 
@@ -50,7 +51,14 @@ struct Options
         unsigned dumpBirthdate  : 0x04;
     };
 
+    enum class OutputFormat
+    {
+        Standard,
+        CSV
+    };
+
     std::vector<std::string> journals{ };
+    OutputFormat format{ };
     Operations ops{ };
 };
 
@@ -58,13 +66,9 @@ Options parseOptions(int argc, char **argv)
 {
     using namespace std::string_literals;
 
-    enum LongOpts
-    {
-        DumpInfo,
-        DumpHashes
-    };
-    static constexpr const char *shortOpts = "hd:";
+    static constexpr const char *shortOpts = "f:hd:";
     static constexpr struct option longOpts[] = {
+        {"format", required_argument, nullptr, 'f'},
         {"help", no_argument, nullptr, 'h'},
         {"dump", required_argument, nullptr, 'd'},
         {nullptr, 0, nullptr, 0}
@@ -74,9 +78,9 @@ Options parseOptions(int argc, char **argv)
     auto subArgv = argv + 1;
 
     const auto usage = [argv] {
-            spdlog::info(
+            std::cout << fmt::format(
                 "usage: {} journal [-d <type> [-d ...]][-h] <journal file>\n"
-                "   dump types: birthdate, hashes, info"
+                "   dump types: birthdate, hashes, info\n"
                 , ::basename(argv[0]));
         };
 
@@ -86,6 +90,14 @@ Options parseOptions(int argc, char **argv)
     {
         switch (c)
         {
+            case 'f':
+                if (optarg == "standard"s)
+                    opts.format = Options::OutputFormat::Standard;
+                else if (optarg == "csv"s)
+                    opts.format = Options::OutputFormat::CSV;
+                else
+                    std::cerr << "error: cannot output in '" << optarg << "' format\n";
+                break;
             case 'h':
                 usage();
                 std::exit(0);
@@ -96,6 +108,8 @@ Options parseOptions(int argc, char **argv)
                     opts.ops.dumpHashes = 1;
                 else if (optarg == "info"s)
                     opts.ops.dumpInfo = 1;
+                else
+                    std::cerr<< "error: cannot dump '" << optarg << "'\n";
                 break;
             case '?':
                 std::exit(1);
@@ -119,42 +133,92 @@ Options parseOptions(int argc, char **argv)
     return opts;
 }
 
-void dumpBirthdate(const Journal &journal)
+void dumpBirthdate(const Journal &journal, const Options &opts)
 {
     using namespace std;
 
-    spdlog::info(
-        "journal creation date: {}"
-        , journal.creationDate().time_since_epoch().count());
-}
-
-void dumpHashes(const Journal &journal)
-{
-    for (const auto &rec : journal)
+    switch (opts.format)
     {
-        spdlog::info(
-            "{} @ {} for {}: {:#016x}"
-            , rec.fileId
-            , rec.offset
-            , rec.size
-            , rec.hash);
+        case Options::OutputFormat::Standard:
+            std::cout << fmt::format(
+                "journal creation date: {}\n"
+                , journal.creationDate().time_since_epoch().count());
+
+            break;
+        case Options::OutputFormat::CSV:
+            std::cout << "# journal creation date\n";
+            std::cout << journal.creationDate().time_since_epoch().count() << "\n";
+
+            break;
     }
 }
 
-void dumpFileInfo(const Journal &journal)
+void dumpHashes(const Journal &journal, const Options &opts)
+{
+    switch (opts.format)
+    {
+        case Options::OutputFormat::Standard:
+            for (const auto &rec : journal)
+            {
+                std::cout << fmt::format(
+                    "{} @ {} for {}: {:#016x}\n"
+                    , rec.fileId
+                    , rec.offset
+                    , rec.size
+                    , rec.hash);
+            }
+
+            break;
+        case Options::OutputFormat::CSV:
+            for (const auto &rec : journal)
+            {
+                std::cout << fmt::format(
+                    "{}, {}, {}, {}\n"
+                    , rec.fileId
+                    , rec.offset
+                    , rec.size
+                    , rec.hash);
+            }
+
+            break;
+    }
+}
+
+void dumpFileInfo(const Journal &journal, const Options &opts)
 {
     const auto &info = journal.fileInfo();
 
-    for (const auto &item : info)
+    switch (opts.format)
     {
-        spdlog::info(
-            "{}: {:o}\t{}\t{}\t{}\t{}"
-            , item.id
-            , item.status.mode
-            , item.status.uid
-            , item.status.gid
-            , item.status.size
-            , item.path);
+        case Options::OutputFormat::Standard:
+            for (const auto &item : info)
+            {
+                std::cout << fmt::format(
+                    "{}: {:o}\t{}\t{}\t{}\t{}\n"
+                    , item.id
+                    , item.status.mode
+                    , item.status.uid
+                    , item.status.gid
+                    , item.status.size
+                    , item.path);
+            }
+
+            break;
+        case Options::OutputFormat::CSV:
+            std::cout << "# file_id, mode, uid, gid, size, path\n";
+            for (const auto &item : info)
+            {
+                std::cout << fmt::format(
+                    "{}, {}, {}, {}, {}, {}\n"
+                    , item.id
+                    , item.status.mode
+                    , item.status.uid
+                    , item.status.gid
+                    , item.status.size
+                    , item.path);
+            }
+
+            break;
     }
 }
 
@@ -163,13 +227,13 @@ void processJournal(const std::string &journalPath, const Options &opts)
     auto journal = Journal{journalPath};
 
     if (opts.ops.dumpBirthdate)
-        dumpBirthdate(journal);
+        dumpBirthdate(journal, opts);
 
     if (opts.ops.dumpInfo)
-        dumpFileInfo(journal);
+        dumpFileInfo(journal, opts);
 
     if (opts.ops.dumpHashes)
-        dumpHashes(journal);
+        dumpHashes(journal, opts);
 }
 
 }
