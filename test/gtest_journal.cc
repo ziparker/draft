@@ -501,3 +501,6 @@ TEST(iterator, seek_invalid)
     iter -= -100;
     EXPECT_EQ(iter, last);
 }
+
+////////////////////////////////////////////////////////////////////////////////
+// JournalOperations

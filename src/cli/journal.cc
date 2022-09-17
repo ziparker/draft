@@ -47,9 +47,10 @@ struct Options
 {
     struct Operations
     {
-        unsigned dumpInfo   : 0x01;
-        unsigned dumpHashes : 0x02;
-        unsigned dumpBirthdate  : 0x04;
+        unsigned dumpInfo   : 1;
+        unsigned dumpHashes : 1;
+        unsigned dumpBirthdate  : 1;
+        unsigned diff       : 1;
     };
 
     enum class OutputFormat
@@ -67,11 +68,12 @@ Options parseOptions(int argc, char **argv)
 {
     using namespace std::string_literals;
 
-    static constexpr const char *shortOpts = "f:hd:";
+    static constexpr const char *shortOpts = "d:Df:h";
     static constexpr struct option longOpts[] = {
+        {"diff", no_argument, nullptr, 'D'},
+        {"dump", required_argument, nullptr, 'd'},
         {"format", required_argument, nullptr, 'f'},
         {"help", no_argument, nullptr, 'h'},
-        {"dump", required_argument, nullptr, 'd'},
         {nullptr, 0, nullptr, 0}
     };
 
@@ -91,6 +93,19 @@ Options parseOptions(int argc, char **argv)
     {
         switch (c)
         {
+            case 'd':
+                if (optarg == "birthdate"s)
+                    opts.ops.dumpBirthdate = 1;
+                else if (optarg == "hashes"s)
+                    opts.ops.dumpHashes = 1;
+                else if (optarg == "info"s)
+                    opts.ops.dumpInfo = 1;
+                else
+                    std::cerr<< "error: cannot dump '" << optarg << "'\n";
+                break;
+            case 'D':
+                opts.ops.diff = 1;
+                break;
             case 'f':
                 if (optarg == "standard"s)
                     opts.format = Options::OutputFormat::Standard;
@@ -102,16 +117,6 @@ Options parseOptions(int argc, char **argv)
             case 'h':
                 usage();
                 std::exit(0);
-            case 'd':
-                if (optarg == "birthdate"s)
-                    opts.ops.dumpBirthdate = 1;
-                else if (optarg == "hashes"s)
-                    opts.ops.dumpHashes = 1;
-                else if (optarg == "info"s)
-                    opts.ops.dumpInfo = 1;
-                else
-                    std::cerr<< "error: cannot dump '" << optarg << "'\n";
-                break;
             case '?':
                 std::exit(1);
             default:
@@ -122,6 +127,12 @@ Options parseOptions(int argc, char **argv)
     if (optind >= subArgc)
     {
         usage();
+        std::exit(1);
+    }
+
+    if (opts.ops.diff && subArgc - optind != 2)
+    {
+        std::cerr << "diff option (-D) requires exactly 2 journal file arguments.\n";
         std::exit(1);
     }
 
@@ -235,6 +246,10 @@ void processJournal(const std::string &journalPath, const Options &opts)
 
     if (opts.ops.dumpHashes)
         dumpHashes(journal, opts);
+
+    if (opts.ops.diff)
+    {
+    }
 }
 
 }

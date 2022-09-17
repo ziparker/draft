@@ -24,30 +24,42 @@
  * SOFTWARE.
  */
 
-#include <unordered_map>
+#include <map>
 
 #include <spdlog/spdlog.h>
 
-#include "JournalOperations.hh"
+#include <draft/util/JournalOperations.hh>
 
 using draft::util::Journal;
 
 namespace draft::cli {
 
+namespace {
+
+struct Key
+{
+    uint16_t file{ };
+    uint64_t offset{ };
+};
+
+constexpr auto operator<=>(Key a, Key b)
+{
+    if (auto cmp = a.file <=> b.file; cmp != 0)
+        return cmp;
+
+    return a.offset <=> b.offset;
+}
+
+struct Value
+{
+    uint64_t hash{ };
+};
+
+}
+
 JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
 {
-    struct Key
-    {
-        uint16_t file{ };
-        uint64_t offset{ };
-    };
-
-    struct Value
-    {
-        uint64_t hash{ };
-    };
-
-    std::unordered_map<uint16_t, Value> map;
+    std::map<Key, Value> map;
     auto diffs = std::vector<JournalFileDiff::Difference>{ };
 
     auto iterA = journalA.begin();
@@ -56,17 +68,17 @@ JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
     auto iterB = journalB.begin();
     const auto endB = journalB.end();
 
-    auto diff = [&map, &diffs](const auto &iter, const auto &last) {
-            if (auto b = map.find({iter->fileId, iter->offset}; b != last)
+    auto diff = [&map, &diffs](const auto &record) {
+            if (auto b = map.find(Key{record.fileId, record.offset}); b != end(map))
             {
-                if (iter->hash != b->hash)
+                if (record.hash != b->second.hash)
                 {
                     diffs.push_back({
-                        .offset = iter->offset,
-                        .size = iter->size,
-                        .hashA = iter->hash,
-                        .hashB = b->hash,
-                        .fileId = iter->fileId
+                        .offset = record.offset,
+                        .size = record.size,
+                        .hashA = record.hash,
+                        .hashB = b->second.hash,
+                        .fileId = record.fileId
                     });
                 }
 
@@ -75,7 +87,7 @@ JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
                 return;
             }
 
-            map.insert({{iter->fileId, iter->offset}, {iter->hash}});
+            map.insert({{record.fileId, record.offset}, {record.hash}});
             spdlog::debug("diff map size: {}", map.size());
         };
 
@@ -83,16 +95,18 @@ JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
     {
         if (iterA != endA)
         {
-            diff(iterA, endA);
+            diff(*iterA);
             ++iterA;
         }
 
-        if (iterA !+ endA)
+        if (iterA != endA)
         {
-            diff(iterB, endB);
+            diff(*iterB);
             ++iterB;
         }
     }
+
+    return {std::move(diffs)};
 }
 
 }

@@ -92,6 +92,7 @@ list(APPEND DRAFTUTIL_SRC
     src/util/Hasher.cc
     src/util/InfoReceiver.cc
     src/util/Journal.cc
+    src/util/JournalOperations.cc
     src/util/PollSet.cc
     src/util/Reader.cc
     src/util/Receiver.cc
@@ -106,7 +107,6 @@ list(APPEND DRAFTUTIL_SRC
     src/util/Writer.cc)
 
 list(APPEND DRAFTCLI_SRC
-    src/cli/JournalOperations.cc
     src/cli/draft.cc
     src/cli/journal.cc
     src/cli/transfer.cc)
