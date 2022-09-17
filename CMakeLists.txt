@@ -106,6 +106,7 @@ list(APPEND DRAFTUTIL_SRC
     src/util/Writer.cc)
 
 list(APPEND DRAFTCLI_SRC
+    src/cli/JournalOperations.cc
     src/cli/draft.cc
     src/cli/journal.cc
     src/cli/transfer.cc)

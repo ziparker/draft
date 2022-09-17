@@ -36,6 +36,7 @@
 #include <draft/util/Journal.hh>
 
 #include "Cmd.hh"
+#include "JournalOperations.hh"
 
 namespace draft::cmd {
 namespace {
