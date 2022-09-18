@@ -517,7 +517,7 @@ TEST(journal_diff, all_match)
     EXPECT_TRUE(diff.diffs.empty());
 }
 
-TEST(journal_diff, mismatch_hash_b)
+TEST(journal_diff, mismatch_hash)
 {
     static constexpr auto BadHash = 42;
 
@@ -526,28 +526,93 @@ TEST(journal_diff, mismatch_hash_b)
     auto [janitor1, journal1] = setupJournal(6);
     auto [janitor2, journal2] = setupJournal(3);
 
-    auto badHashRecord = defaultHashRecord(4);
+    auto badHashRecord = defaultHashRecord(3);
     badHashRecord.hash = 42;
     journal2.writeHash(badHashRecord);
 
     for (unsigned i = 0; i < 2; ++i)
     {
-        auto rec = defaultHashRecord(5 + i);
+        auto rec = defaultHashRecord(4 + i);
         journal2.writeHash(rec);
     }
 
     auto diff = diffJournals(journal1, journal2);
     ASSERT_EQ(diff.diffs.size(), 1u);
 
-    const auto comp = defaultHashRecord(4);
+    static constexpr auto comp = defaultHashRecord(3);
     EXPECT_EQ(diff.diffs[0].offset, comp.offset);
     EXPECT_EQ(diff.diffs[0].size, comp.size);
     EXPECT_EQ(diff.diffs[0].hashA, comp.hash);
     EXPECT_EQ(diff.diffs[0].hashB, BadHash);
     EXPECT_EQ(diff.diffs[0].fileId, comp.fileId);
+
+    // reverse diff, so a (us) has the bad hash.
+    diff = diffJournals(journal2, journal1);
+    ASSERT_EQ(diff.diffs.size(), 1u);
+
+    EXPECT_EQ(diff.diffs[0].offset, comp.offset);
+    EXPECT_EQ(diff.diffs[0].size, comp.size);
+    EXPECT_EQ(diff.diffs[0].hashA, BadHash);
+    EXPECT_EQ(diff.diffs[0].hashB, comp.hash);
+    EXPECT_EQ(diff.diffs[0].fileId, comp.fileId);
 }
 
-TEST(journal_diff, mismatch_count_b)
+TEST(journal_diff, mismatch_hash_multi)
+{
+    static constexpr auto BadHash = 42;
+
+    using draft::util::diffJournals;
+
+    auto [janitor1, journal1] = setupJournal(6);
+    auto [janitor2, journal2] = setupJournal(3);
+
+    auto badHashRecord = defaultHashRecord(3);
+    badHashRecord.hash = 42;
+    journal2.writeHash(badHashRecord);
+
+    journal2.writeHash(defaultHashRecord(4));
+
+    badHashRecord = defaultHashRecord(5);
+    badHashRecord.hash = 43;
+    journal2.writeHash(badHashRecord);
+
+    auto diff = diffJournals(journal1, journal2);
+    ASSERT_EQ(diff.diffs.size(), 2u);
+
+    auto comp = defaultHashRecord(3);
+    EXPECT_EQ(diff.diffs[0].offset, comp.offset);
+    EXPECT_EQ(diff.diffs[0].size, comp.size);
+    EXPECT_EQ(diff.diffs[0].hashA, comp.hash);
+    EXPECT_EQ(diff.diffs[0].hashB, BadHash);
+    EXPECT_EQ(diff.diffs[0].fileId, comp.fileId);
+
+    comp = defaultHashRecord(5);
+    EXPECT_EQ(diff.diffs[1].offset, comp.offset);
+    EXPECT_EQ(diff.diffs[1].size, comp.size);
+    EXPECT_EQ(diff.diffs[1].hashA, comp.hash);
+    EXPECT_EQ(diff.diffs[1].hashB, BadHash + 1);
+    EXPECT_EQ(diff.diffs[1].fileId, comp.fileId);
+
+    // reverse.
+    diff = diffJournals(journal2, journal1);
+    ASSERT_EQ(diff.diffs.size(), 2u);
+
+    comp = defaultHashRecord(3);
+    EXPECT_EQ(diff.diffs[0].offset, comp.offset);
+    EXPECT_EQ(diff.diffs[0].size, comp.size);
+    EXPECT_EQ(diff.diffs[0].hashA, BadHash);
+    EXPECT_EQ(diff.diffs[0].hashB, comp.hash);
+    EXPECT_EQ(diff.diffs[0].fileId, comp.fileId);
+
+    comp = defaultHashRecord(5);
+    EXPECT_EQ(diff.diffs[1].offset, comp.offset);
+    EXPECT_EQ(diff.diffs[1].size, comp.size);
+    EXPECT_EQ(diff.diffs[1].hashA, BadHash + 1);
+    EXPECT_EQ(diff.diffs[1].hashB, comp.hash);
+    EXPECT_EQ(diff.diffs[1].fileId, comp.fileId);
+}
+
+TEST(journal_diff, mismatch_count)
 {
     using draft::util::diffJournals;
 
@@ -557,11 +622,21 @@ TEST(journal_diff, mismatch_count_b)
     auto diff = diffJournals(journal1, journal2);
     ASSERT_EQ(diff.diffs.size(), 1u);
 
-    const auto comp = defaultHashRecord(4);
+    const auto comp = defaultHashRecord(5);
     EXPECT_EQ(diff.diffs[0].offset, comp.offset);
     EXPECT_EQ(diff.diffs[0].size, comp.size);
     EXPECT_EQ(diff.diffs[0].hashA, comp.hash);
     EXPECT_EQ(diff.diffs[0].hashB, 0);
+    EXPECT_EQ(diff.diffs[0].fileId, comp.fileId);
+
+    // reverse diff.
+    diff = diffJournals(journal2, journal1);
+    ASSERT_EQ(diff.diffs.size(), 1u);
+
+    EXPECT_EQ(diff.diffs[0].offset, comp.offset);
+    EXPECT_EQ(diff.diffs[0].size, comp.size);
+    EXPECT_EQ(diff.diffs[0].hashA, 0);
+    EXPECT_EQ(diff.diffs[0].hashB, comp.hash);
     EXPECT_EQ(diff.diffs[0].fileId, comp.fileId);
 }
 

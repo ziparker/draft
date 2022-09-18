@@ -116,8 +116,9 @@ JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
     std::transform(
         begin(map), end(map),
         std::back_inserter(diffs),
-        [](const auto &[k, v] : map) {
-            diffs.push_back({
+        [](const auto &kv) {
+            const auto &[k, v] = kv;
+            return JournalFileDiff::Difference {
                 .offset = k.offset,
                 .size = v.size,
                 .hashA = v.which == Which::A ?
@@ -125,7 +126,7 @@ JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
                 .hashB = v.which == Which::B ?
                     v.hash : 0,
                 .fileId = k.file
-            });
+            };
         });
 
     return {std::move(diffs)};
