@@ -516,3 +516,27 @@ TEST(journal_diff, all_match)
     auto diff = diffJournals(journal1, journal2);
     EXPECT_TRUE(diff.diffs.empty());
 }
+
+TEST(journal_diff, mismatch)
+{
+    using draft::util::diffJournals;
+
+    auto [janitor1, journal1] = setupJournal(3);
+    auto [janitor2, journal2] = setupJournal(3);
+
+    journal1.writeHash(defaultHashRecord(4));
+
+    auto badHashRecord = defaultHashRecord(4);
+    badHashRecord.hash = 42;
+    journal1.writeHash(badHashRecord);
+
+    for (unsigned i = 0; i < 2; ++i)
+    {
+        auto rec = defaultHashRecord(5 + i);
+        journal1.writeHash(rec);
+        journal2.writeHash(rec);
+    }
+
+    auto diff = diffJournals(journal1, journal2);
+    ASSERT_EQ(diff.diffs.size(), 1u);
+}

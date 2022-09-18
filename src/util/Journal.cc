@@ -220,7 +220,25 @@ int Journal::writeHash(uint16_t fileId, size_t offset, size_t size, uint64_t has
             { }
         };
 
-    writeHashRecord(record);
+    return writeHash(record);
+}
+
+int Journal::writeHash(const HashRecord &record)
+{
+    auto iov = iovec{const_cast<HashRecord *>(&record), sizeof(record)};
+
+    // this RWF_APPEND behavior is linux-specific (added in 4.16).
+    if (auto len = writeChunk(fd_.get(), &iov, 1, 0, RWF_APPEND); len != sizeof(record))
+    {
+        throw std::system_error(
+            errno,
+            std::system_category(),
+            fmt::format("draft: unable to write journal hash record for file {} offset {} len {} hash {:#x}"
+                , record.fileId
+                , record.offset
+                , record.size
+                , record.hash));
+    }
 
     return 0;
 }
@@ -291,24 +309,6 @@ void Journal::writeFileData(const void *data, size_t size)
     {
         throw std::runtime_error(
             fmt::format("draft: unable to write journal header of size {}", size));
-    }
-}
-
-void Journal::writeHashRecord(const HashRecord &record)
-{
-    auto iov = iovec{const_cast<HashRecord *>(&record), sizeof(record)};
-
-    // this RWF_APPEND behavior is linux-specific (added in 4.16).
-    if (auto len = writeChunk(fd_.get(), &iov, 1, 0, RWF_APPEND); len != sizeof(record))
-    {
-        throw std::system_error(
-            errno,
-            std::system_category(),
-            fmt::format("draft: unable to write journal hash record for file {} offset {} len {} hash {:#x}"
-                , record.fileId
-                , record.offset
-                , record.size
-                , record.hash));
     }
 }
 
