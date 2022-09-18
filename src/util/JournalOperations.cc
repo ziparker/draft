@@ -32,7 +32,7 @@
 
 using draft::util::Journal;
 
-namespace draft::cli {
+namespace draft::util {
 
 namespace {
 
@@ -63,7 +63,7 @@ JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
     auto diffs = std::vector<JournalFileDiff::Difference>{ };
 
     auto iterA = journalA.begin();
-    const auto endA = journalA.begin();
+    const auto endA = journalA.end();
 
     auto iterB = journalB.begin();
     const auto endB = journalB.end();
@@ -99,7 +99,7 @@ JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
             ++iterA;
         }
 
-        if (iterA != endA)
+        if (iterB != endB)
         {
             diff(*iterB);
             ++iterB;

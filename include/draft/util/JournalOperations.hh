@@ -31,7 +31,7 @@
 
 #include "Journal.hh"
 
-namespace draft::cli {
+namespace draft::util {
 
 struct JournalFileDiff
 {

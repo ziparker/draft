@@ -31,6 +31,7 @@
 #include <spdlog/spdlog.h>
 
 #include <draft/util/Journal.hh>
+#include <draft/util/JournalOperations.hh>
 
 namespace fs = std::filesystem;
 
@@ -82,7 +83,7 @@ constexpr HashRecord defaultHashRecord(size_t idx = 0)
     };
 }
 
-std::pair<FileJanitor, Journal> setupJournal(size_t hashCount = 0)
+std::pair<FileJanitor, Journal> setupJournal(size_t hashCount = 0, unsigned hashOffset = 0)
 {
     const auto basename = tempFilename("/tmp/journal");
 
@@ -94,7 +95,7 @@ std::pair<FileJanitor, Journal> setupJournal(size_t hashCount = 0)
     for (size_t i = 0; i < hashCount; ++i)
     {
         auto rec = defaultHashRecord(i);
-        journal.writeHash(rec.fileId, rec.offset, rec.size, rec.hash);
+        journal.writeHash(rec.fileId, rec.offset, rec.size, rec.hash + hashOffset);
     }
 
     return {std::move(janitor), std::move(journal)};
@@ -504,3 +505,14 @@ TEST(iterator, seek_invalid)
 
 ////////////////////////////////////////////////////////////////////////////////
 // JournalOperations
+
+TEST(journal_diff, all_match)
+{
+    using draft::util::diffJournals;
+
+    auto [janitor1, journal1] = setupJournal(6);
+    auto [janitor2, journal2] = setupJournal(6);
+
+    auto diff = diffJournals(journal1, journal2);
+    EXPECT_TRUE(diff.diffs.empty());
+}
