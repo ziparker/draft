@@ -517,26 +517,58 @@ TEST(journal_diff, all_match)
     EXPECT_TRUE(diff.diffs.empty());
 }
 
-TEST(journal_diff, mismatch)
+TEST(journal_diff, mismatch_hash_b)
 {
+    static constexpr auto BadHash = 42;
+
     using draft::util::diffJournals;
 
-    auto [janitor1, journal1] = setupJournal(3);
+    auto [janitor1, journal1] = setupJournal(6);
     auto [janitor2, journal2] = setupJournal(3);
-
-    journal1.writeHash(defaultHashRecord(4));
 
     auto badHashRecord = defaultHashRecord(4);
     badHashRecord.hash = 42;
-    journal1.writeHash(badHashRecord);
+    journal2.writeHash(badHashRecord);
 
     for (unsigned i = 0; i < 2; ++i)
     {
         auto rec = defaultHashRecord(5 + i);
-        journal1.writeHash(rec);
         journal2.writeHash(rec);
     }
 
     auto diff = diffJournals(journal1, journal2);
     ASSERT_EQ(diff.diffs.size(), 1u);
+
+    const auto comp = defaultHashRecord(4);
+    EXPECT_EQ(diff.diffs[0].offset, comp.offset);
+    EXPECT_EQ(diff.diffs[0].size, comp.size);
+    EXPECT_EQ(diff.diffs[0].hashA, comp.hash);
+    EXPECT_EQ(diff.diffs[0].hashB, BadHash);
+    EXPECT_EQ(diff.diffs[0].fileId, comp.fileId);
+}
+
+TEST(journal_diff, mismatch_count_b)
+{
+    using draft::util::diffJournals;
+
+    auto [janitor1, journal1] = setupJournal(6);
+    auto [janitor2, journal2] = setupJournal(5);
+
+    auto diff = diffJournals(journal1, journal2);
+    ASSERT_EQ(diff.diffs.size(), 1u);
+
+    const auto comp = defaultHashRecord(4);
+    EXPECT_EQ(diff.diffs[0].offset, comp.offset);
+    EXPECT_EQ(diff.diffs[0].size, comp.size);
+    EXPECT_EQ(diff.diffs[0].hashA, comp.hash);
+    EXPECT_EQ(diff.diffs[0].hashB, 0);
+    EXPECT_EQ(diff.diffs[0].fileId, comp.fileId);
+}
+
+TEST(journal_diff, mismatch_count_a)
+{
+}
+
+TEST(journal_diff, mismatch_multi_file)
+{
 }

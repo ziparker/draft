@@ -36,6 +36,8 @@ namespace draft::util {
 
 namespace {
 
+enum class Which { A, B };
+
 struct Key
 {
     uint16_t file{ };
@@ -52,7 +54,9 @@ constexpr auto operator<=>(Key a, Key b)
 
 struct Value
 {
+    uint64_t size{ };
     uint64_t hash{ };
+    Which which{ };
 };
 
 }
@@ -68,26 +72,29 @@ JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
     auto iterB = journalB.begin();
     const auto endB = journalB.end();
 
-    auto diff = [&map, &diffs](const auto &record) {
-            if (auto b = map.find(Key{record.fileId, record.offset}); b != end(map))
+    auto diff = [&map, &diffs](const auto &record, Which which) {
+            if (auto other = map.find(Key{record.fileId, record.offset}); other != end(map))
             {
-                if (record.hash != b->second.hash)
+                if (record.hash != other->second.hash)
                 {
                     diffs.push_back({
                         .offset = record.offset,
                         .size = record.size,
-                        .hashA = record.hash,
-                        .hashB = b->second.hash,
+                        .hashA = which == Which::A ? record.hash : other->second.hash,
+                        .hashB = which == Which::B ? record.hash : other->second.hash,
                         .fileId = record.fileId
                     });
                 }
 
-                map.erase(b);
+                map.erase(other);
 
                 return;
             }
 
-            map.insert({{record.fileId, record.offset}, {record.hash}});
+            map.insert({
+                {record.fileId, record.offset},
+                {record.size, record.hash, which}});
+
             spdlog::debug("diff map size: {}", map.size());
         };
 
@@ -95,16 +102,31 @@ JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
     {
         if (iterA != endA)
         {
-            diff(*iterA);
+            diff(*iterA, Which::A);
             ++iterA;
         }
 
         if (iterB != endB)
         {
-            diff(*iterB);
+            diff(*iterB, Which::B);
             ++iterB;
         }
     }
+
+    std::transform(
+        begin(map), end(map),
+        std::back_inserter(diffs),
+        [](const auto &[k, v] : map) {
+            diffs.push_back({
+                .offset = k.offset,
+                .size = v.size,
+                .hashA = v.which == Which::A ?
+                    v.hash : 0,
+                .hashB = v.which == Which::B ?
+                    v.hash : 0,
+                .fileId = k.file
+            });
+        });
 
     return {std::move(diffs)};
 }
