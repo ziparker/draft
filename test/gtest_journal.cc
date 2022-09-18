@@ -83,7 +83,7 @@ constexpr HashRecord defaultHashRecord(size_t idx = 0)
     };
 }
 
-std::pair<FileJanitor, Journal> setupJournal(size_t hashCount = 0, unsigned hashOffset = 0)
+std::pair<FileJanitor, Journal> setupJournal(size_t hashCount = 0, unsigned hashOffset = 0, unsigned file = 0)
 {
     const auto basename = tempFilename("/tmp/journal");
 
@@ -95,7 +95,7 @@ std::pair<FileJanitor, Journal> setupJournal(size_t hashCount = 0, unsigned hash
     for (size_t i = 0; i < hashCount; ++i)
     {
         auto rec = defaultHashRecord(i);
-        journal.writeHash(rec.fileId, rec.offset, rec.size, rec.hash + hashOffset);
+        journal.writeHash(file, rec.offset, rec.size, rec.hash + hashOffset);
     }
 
     return {std::move(janitor), std::move(journal)};
@@ -640,10 +640,26 @@ TEST(journal_diff, mismatch_count)
     EXPECT_EQ(diff.diffs[0].fileId, comp.fileId);
 }
 
-TEST(journal_diff, mismatch_count_a)
-{
-}
-
 TEST(journal_diff, mismatch_multi_file)
 {
+    using draft::util::diffJournals;
+
+    auto [janitor1, journal1] = setupJournal(5);
+    auto [janitor2, journal2] = setupJournal(5);
+
+    static constexpr auto rec = defaultHashRecord();
+    journal1.writeHash(0, rec.offset, rec.size, rec.hash);
+    journal1.writeHash(1, rec.offset, rec.size, rec.hash + 1);
+
+    journal2.writeHash(0, rec.offset, rec.size, rec.hash);
+    journal2.writeHash(1, rec.offset, rec.size, rec.hash);
+
+    auto diff = diffJournals(journal1, journal2);
+    ASSERT_EQ(diff.diffs.size(), 1u);
+
+    EXPECT_EQ(diff.diffs[0].offset, rec.offset);
+    EXPECT_EQ(diff.diffs[0].size, rec.size);
+    EXPECT_EQ(diff.diffs[0].hashA, rec.hash + 1);
+    EXPECT_EQ(diff.diffs[0].hashB, rec.hash);
+    EXPECT_EQ(diff.diffs[0].fileId, 1);
 }
