@@ -59,7 +59,7 @@ void RxSession::start(util::TransferRequest req)
 
     createTargetFiles(conf_.pathRoot, req.config.fileInfo);
 
-    journal_ = std::make_unique<Journal>(fs::path{conf_.pathRoot}/"rx_hashlog", req.config.fileInfo);
+    journal_ = std::make_unique<Journal>(fs::path{conf_.pathRoot}/"rx_hashlog.draft", req.config.fileInfo);
     hashExec_.add(util::Hasher{hashQueue_, journal_}, ThreadExecutor::Options::DoFinalize);
 
     auto fileInfo = std::vector<FileInfo>{ };
