@@ -40,6 +40,7 @@
 #include <spdlog/cfg/env.h>
 
 #include <draft/util/UtilJson.hh>
+#include <draft/util/Version.hh>
 #include "Cmd.hh"
 
 namespace {
@@ -94,7 +95,7 @@ int main(int argc, char **argv)
 {
     spdlog::cfg::load_env_levels();
 
-    spdlog::info("draft build {} {}", __DATE__, __TIME__);
+    spdlog::info("draft build {}", draft::util::versionString());
 
     try {
         dispatchSubcommand(argc, argv);

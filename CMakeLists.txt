@@ -104,6 +104,7 @@ list(APPEND DRAFTUTIL_SRC
     src/util/TxSession.cc
     src/util/Util.cc
     src/util/UtilJson.cc
+    src/util/Version.cc
     src/util/Writer.cc)
 
 list(APPEND DRAFTCLI_SRC

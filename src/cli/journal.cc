@@ -82,8 +82,16 @@ Options parseOptions(int argc, char **argv)
 
     const auto usage = [argv] {
             std::cout << fmt::format(
-                "usage: {} journal [-d <type> [-d ...]][-h] <journal file>\n"
-                "   dump types: birthdate, hashes, info\n"
+                "usage: {} journal OPTIONS <journal file>\n"
+                "  OPTIONS:\n"
+                "   -d | --dump <type>\n"
+                "       types: birthdate, hashes, file info\n"
+                "   -D | --diff\n"
+                "       diff the specified journal files - requires exactly 2 journal arguments.\n"
+                "   -f | --format <formats>\n"
+                "       formats: standard (default), csv\n"
+                "   -h | --help\n"
+                "       show this help\n"
                 , ::basename(argv[0]));
         };
 
