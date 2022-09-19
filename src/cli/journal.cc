@@ -248,20 +248,41 @@ void processJournal(const std::string &journalPath, const Options &opts)
         dumpHashes(journal, opts);
 }
 
-void dumpDiff(const util::JournalFileDiff &diff)
+void dumpDiff(const util::JournalFileDiff &diff, const Options &opts)
 {
-    for (const auto &mismatch : diff.diffs)
+    switch (opts.format)
     {
-        if (!!mismatch.hashA ^ !!mismatch.hashB)
-            std::cout << fmt::format("only in {}: ", mismatch.hashA ? "ours" : "theirs");
+        case Options::OutputFormat::Standard:
+            for (const auto &mismatch : diff.diffs)
+            {
+                if (!!mismatch.hashA ^ !!mismatch.hashB)
+                    std::cout << fmt::format("only in {}: ", mismatch.hashA ? "ours" : "theirs");
 
-        std::cout << fmt::format(
-            "file {} @ offset {} for {}, us: {:#016x} them: {:#016x}\n"
-            , mismatch.fileId
-            , mismatch.offset
-            , mismatch.size
-            , mismatch.hashA
-            , mismatch.hashB);
+                std::cout << fmt::format(
+                    "file {} @ offset {} for {}, us: {:#016x} them: {:#016x}\n"
+                    , mismatch.fileId
+                    , mismatch.offset
+                    , mismatch.size
+                    , mismatch.hashA
+                    , mismatch.hashB);
+            }
+
+            break;
+        case Options::OutputFormat::CSV:
+            std::cout << "file_id, offset, size, us (base 16), them (base 16)\n";
+
+            for (const auto &mismatch : diff.diffs)
+            {
+                std::cout << fmt::format(
+                    "{}, {}, {}, {:016x}, {:016x}\n"
+                    , mismatch.fileId
+                    , mismatch.offset
+                    , mismatch.size
+                    , mismatch.hashA
+                    , mismatch.hashB);
+            }
+
+            break;
     }
 }
 
@@ -274,7 +295,7 @@ void diffJournals(const Options &opts)
     auto journalB = Journal{opts.journals[1]};
 
     auto diff = util::diffJournals(journalA, journalB);
-    dumpDiff(diff);
+    dumpDiff(diff, opts);
 }
 
 }
