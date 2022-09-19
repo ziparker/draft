@@ -36,7 +36,7 @@
 #include <draft/util/Journal.hh>
 
 #include "Cmd.hh"
-#include "JournalOperations.hh"
+#include <draft/util/JournalOperations.hh>
 
 namespace draft::cmd {
 namespace {
@@ -246,10 +246,35 @@ void processJournal(const std::string &journalPath, const Options &opts)
 
     if (opts.ops.dumpHashes)
         dumpHashes(journal, opts);
+}
 
-    if (opts.ops.diff)
+void dumpDiff(const util::JournalFileDiff &diff)
+{
+    for (const auto &mismatch : diff.diffs)
     {
+        if (!!mismatch.hashA ^ !!mismatch.hashB)
+            std::cout << fmt::format("only in {}: ", mismatch.hashA ? "ours" : "theirs");
+
+        std::cout << fmt::format(
+            "file {} @ offset {} for {}, us: {:#016x} them: {:#016x}\n"
+            , mismatch.fileId
+            , mismatch.offset
+            , mismatch.size
+            , mismatch.hashA
+            , mismatch.hashB);
     }
+}
+
+void diffJournals(const Options &opts)
+{
+    if (opts.journals.size() < 2)
+        std::cerr << "diff requires exactly 2 journal files.\n";
+
+    auto journalA = Journal{opts.journals[0]};
+    auto journalB = Journal{opts.journals[1]};
+
+    auto diff = util::diffJournals(journalA, journalB);
+    dumpDiff(diff);
 }
 
 }
@@ -260,6 +285,9 @@ int journal(int argc, char **argv)
 
     for (const auto &journal : opts.journals)
         processJournal(journal, opts);
+
+    if (opts.ops.diff)
+        diffJournals(opts);
 
     return 0;
 }
