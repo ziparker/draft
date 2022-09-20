@@ -179,7 +179,9 @@ bool TxSession::startFile(const FileInfo &info)
         const auto rateDeadline = Clock::now() + 1ms;
 
         auto diskRead = Reader(fd, info.id, {0, fileSz}, pool_, queue_);
-        diskRead.setHashQueue(hashQueue_);
+
+        if (!conf_.journalPath.empty())
+            diskRead.setHashQueue(hashQueue_);
 
         if (auto future = readExec_.launch(std::move(diskRead)))
         {

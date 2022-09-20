@@ -100,7 +100,10 @@ void RxSession::start(util::TransferRequest req)
     }
 
     const auto view = std::views::transform(
-        targetFds_, [this](auto &&fd){ return Receiver{std::move(fd), queue_, &hashQueue_}; });
+        targetFds_, [this](auto &&fd){
+            return Receiver{std::move(fd), queue_,
+                conf_.journalPath.empty() ? nullptr : &hashQueue_};
+        });
 
     auto receivers = std::vector<Receiver>{
         std::make_move_iterator(begin(view)),
@@ -122,6 +125,7 @@ void RxSession::finish() noexcept
     recvExec_.cancel();
     writeExec_.cancel();
     writeExec_.waitFinished();
+    hashExec_.cancel();
 
     // truncate after each file.
     truncateFiles();
