@@ -303,7 +303,11 @@ void diffJournals(const Options &opts)
     auto journalB = Journal{opts.journals[1]};
 
     auto diff = util::diffJournals(journalA, journalB);
-    dumpDiff(diff, opts);
+
+    if (diff.diffs.empty())
+        std::cout << "\t(no differences to display)\n";
+    else
+        dumpDiff(diff, opts);
 }
 
 }
