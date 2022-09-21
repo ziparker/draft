@@ -132,6 +132,9 @@ void RxSession::finish() noexcept
     writeExec_.waitFinished();
     hashExec_.cancel();
 
+    if (journal_)
+        journal_->sync();
+
     // truncate after each file.
     truncateFiles();
 }

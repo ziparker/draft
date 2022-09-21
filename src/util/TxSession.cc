@@ -99,6 +99,9 @@ void TxSession::finish() noexcept
     readExec_.cancel();
     sendExec_.cancel();
     hashExec_.cancel();
+
+    if (journal_)
+        journal_->sync();
 }
 
 bool TxSession::runOnce()
