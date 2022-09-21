@@ -78,7 +78,7 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
 {
     namespace fs = std::filesystem;
 
-    static constexpr const char *shortOpts = "hj::p:Ps:t:";
+    static constexpr const char *shortOpts = "hj::np:Ps:t:";
     static constexpr struct option longOpts[] = {
         {"help", no_argument, nullptr, 'h'},
         {"journal", optional_argument, nullptr, 'j'},
@@ -95,7 +95,7 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
 
     const auto usage = [argv] {
             std::cout << fmt::format(
-                "usage: {} (send|recv) [-h][-j [<path>][-p <path>][-P][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
+                "usage: {} (send|recv) [-h][-j [<path>][-n][-p <path>][-P][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
                 , ::basename(argv[0]));
         };
 
@@ -108,6 +108,9 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
                 "   -j | --journal [<path>]\n"
                 "       enable hash journaling, and optionally specify the journal file path.\n"
                 "       the default path is <transfer path root>/(tx,rx)_journal.draft.\n"
+                "   -n | --nodirect\n"
+                "       disable the use of direct-io.\n"
+                "       this enables usage on filesystems that don't support it.\n"
                 "   -p | --path <transfer path root>\n"
                 "       (send only) - path to directory to send.\n"
                 "       the target tree is recreated, in full, on the receive side.\n"
