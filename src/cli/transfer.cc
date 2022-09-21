@@ -78,15 +78,21 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
 {
     namespace fs = std::filesystem;
 
-    static constexpr const char *shortOpts = "hj::np:Ps:t:";
+    enum LongOnlyOpts
+    {
+        OptJournalPath = 128
+    };
+
+    static constexpr const char *shortOpts = "hjJ:np:Ps:t:";
     static constexpr struct option longOpts[] = {
         {"help", no_argument, nullptr, 'h'},
-        {"journal", optional_argument, nullptr, 'j'},
+        {"journal", no_argument, nullptr, 'j'},
         {"nodirect", no_argument, nullptr, 'n'},
         {"path", required_argument, nullptr, 'p'},
         {"progress", no_argument, nullptr, 'P'},
         {"service", required_argument, nullptr, 's'},
         {"target", required_argument, nullptr, 't'},
+        {"journal-path", required_argument, nullptr, 'J'},
         {nullptr, 0, nullptr, 0}
     };
 
@@ -105,9 +111,12 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
                 "  OPTIONS:\n"
                 "   -h | --help\n"
                 "       show this help message.\n"
-                "   -j | --journal [<path>]\n"
+                "   -j | --journal\n"
                 "       enable hash journaling, and optionally specify the journal file path.\n"
-                "       the default path is <transfer path root>/(tx,rx)_journal.draft.\n"
+                "       the default path is <transfer path root>/(tx,rx)_journal.draft for directories.\n"
+                "       and is <transfer path root>_(tx,rx)_journal.draft for single file transfers.\n"
+                "   -J | --journal-path <path>\n"
+                "       enable journal, same as as '-j', but with the specified path.\n"
                 "   -n | --nodirect\n"
                 "       disable the use of direct-io.\n"
                 "       this enables usage on filesystems that don't support it.\n"
@@ -135,8 +144,6 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
                 std::exit(0);
             case 'j':
                 opts.doJournal = true;
-                if (optarg)
-                    opts.session.journalPath = optarg;
                 break;
             case 'n':
                 opts.session.useDirectIO = false;
@@ -153,6 +160,10 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
                 break;
             case 't':
                 opts.session.targets.push_back(draft::util::parseTarget(optarg));
+                break;
+            case OptJournalPath:
+                opts.doJournal = true;
+                opts.session.journalPath = optarg;
                 break;
             case '?':
                 usage();
