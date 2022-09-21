@@ -77,7 +77,12 @@ void RxSession::start(util::TransferRequest req)
             item.path,
             item.targetSuffix);
 
-        auto fd = ScopedFd{::open(path.c_str(), O_WRONLY | O_DIRECT)};
+        auto flags = O_WRONLY;
+
+        if (conf_.useDirectIO)
+            flags |= O_DIRECT;
+
+        auto fd = ScopedFd{::open(path.c_str(), flags)};
         auto rawFd = fd.get();
 
         if (rawFd < 0)
