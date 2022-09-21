@@ -179,8 +179,16 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
 
     if (opts.doJournal && opts.session.journalPath.empty())
     {
-        opts.session.journalPath = fs::path{opts.session.pathRoot} /
-            (mode == TransferMode::Send ? "tx_journal.draft" : "rx_journal.draft");
+        if (fs::is_directory(opts.session.pathRoot))
+        {
+            opts.session.journalPath = fs::path{opts.session.pathRoot} /
+                (mode == TransferMode::Send ? "tx_journal.draft" : "rx_journal.draft");
+        }
+        else
+        {
+            opts.session.journalPath = fs::path{opts.session.pathRoot +
+                (mode == TransferMode::Send ? "_tx_journal.draft" : "_rx_journal.draft")};
+        }
 
         spdlog::info("using default journal path: {}", opts.session.journalPath);
     }
