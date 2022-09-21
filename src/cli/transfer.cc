@@ -153,7 +153,7 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
                 break;
             case 'P':
                 opts.showProgress = true;
-                spdlog::set_level(spdlog::level::off);
+                spdlog::set_level(spdlog::level::warn);
                 break;
             case 's':
                 opts.session.service = draft::util::parseTarget(optarg);
