@@ -101,7 +101,7 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
 
     const auto usage = [argv] {
             std::cout << fmt::format(
-                "usage: {} (send|recv) [-h][-j [<path>][-n][-p <path>][-P][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
+                "usage: {} (send|recv) [-h][-j][-J [<path>][-n][-p <path>][-P][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
                 , ::basename(argv[0]));
         };
 
@@ -145,6 +145,10 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
             case 'j':
                 opts.doJournal = true;
                 break;
+            case 'J':
+                opts.doJournal = true;
+                opts.session.journalPath = optarg;
+                break;
             case 'n':
                 opts.session.useDirectIO = false;
                 break;
@@ -160,10 +164,6 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
                 break;
             case 't':
                 opts.session.targets.push_back(draft::util::parseTarget(optarg));
-                break;
-            case OptJournalPath:
-                opts.doJournal = true;
-                opts.session.journalPath = optarg;
                 break;
             case '?':
                 usage();
