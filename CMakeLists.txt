@@ -153,3 +153,22 @@ if (DRAFT_ENABLE_TESTS)
     gtest_discover_tests(gtest_draft)
     enable_testing()
 endif ()
+
+install(
+    DIRECTORY include/draft/util
+    DESTINATION include/draft)
+
+install(
+    TARGETS draft
+    EXPORT draftConfig
+    RUNTIME DESTINATION bin)
+
+install(
+    TARGETS draftutil
+    EXPORT draftutilConfig
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib)
+
+install(EXPORT draftConfig
+    DESTINATION lib/cmake/draft
+    NAMESPACE draft::)
