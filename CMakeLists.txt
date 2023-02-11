@@ -160,12 +160,11 @@ install(
 
 install(
     TARGETS draft
-    EXPORT draftConfig
     RUNTIME DESTINATION bin)
 
 install(
     TARGETS draftutil
-    EXPORT draftutilConfig
+    EXPORT draftConfig
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib)
 
