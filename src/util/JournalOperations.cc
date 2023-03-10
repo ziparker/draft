@@ -134,9 +134,37 @@ JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
 
 JournalFileDiff verifyJournal(const Journal &journal, const std::string &pathRoot)
 {
+    const auto fileMap = [](const Journal &j, const std::filesystem::path &root) {
+            namespace fs = std::filesystem;
+
+            const auto &info = j.fileInfo();
+
+            auto pathMap = std::unordered_map<uint16_t, std::string>{ };
+            pathMap.reserve(info.size());
+
+            for (const auto &item : info)
+                pathMap[item.id] = root.empty() ? item.path : (root / item.path).string();
+
+            return pathMap;
+        }(journal, pathRoot);
+
     // enqueue readers for files in journal.
     // pass all reader chunks to hashers.
     // on chunk hash complete, verify hash in journal.
+    for (const auto &record : journal)
+    {
+        auto iter = fileMap.find(record.fileId);
+
+        if (iter == end(fileMap))
+        {
+            spdlog::warn("skipping record: {} @ {}", record.fileId, record.offset);
+            continue;
+        }
+
+        // enqueue read + hash info for this chunk.
+    }
+
+    return { };
 }
 
 }
