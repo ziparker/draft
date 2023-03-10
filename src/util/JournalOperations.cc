@@ -132,4 +132,11 @@ JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
     return {std::move(diffs)};
 }
 
+JournalFileDiff verifyJournal(const Journal &journal, const std::string &pathRoot)
+{
+    // enqueue readers for files in journal.
+    // pass all reader chunks to hashers.
+    // on chunk hash complete, verify hash in journal.
+}
+
 }

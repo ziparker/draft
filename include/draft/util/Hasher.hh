@@ -27,6 +27,7 @@
 #ifndef __DRAFT_UTIL_HASHER_HH_
 #define __DRAFT_UTIL_HASHER_HH_
 
+#include <functional>
 #include <stop_token>
 
 #include "Util.hh"
@@ -38,9 +39,19 @@ class Journal;
 class Hasher
 {
 public:
+    struct DigestInfo
+    {
+        uint64_t digest{ };
+        size_t offset{ };
+        size_t size{ };
+        uint16_t fileId{ };
+    };
+
     using Buffer = BufferPool::Buffer;
+    using Callback = std::function<void(const DigestInfo &)>;
 
     Hasher(BufQueue &queue, const std::shared_ptr<Journal> &hashLog);
+    Hasher(BufQueue &queue, Callback cb);
 
     bool runOnce(std::stop_token stopToken);
 
@@ -49,6 +60,7 @@ private:
 
     BufQueue *queue_{ };
     const std::shared_ptr<Journal> hashLog_{ };
+    Callback cb_{ };
 };
 
 }

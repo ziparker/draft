@@ -41,6 +41,12 @@ Hasher::Hasher(BufQueue &queue, const std::shared_ptr<Journal> &hashLog):
 {
 }
 
+Hasher::Hasher(BufQueue &queue, Callback cb):
+    queue_(&queue),
+    cb_(std::move(cb))
+{
+}
+
 bool Hasher::runOnce(std::stop_token stopToken)
 {
     using namespace std::chrono_literals;
@@ -70,11 +76,17 @@ bool Hasher::runOnce(std::stop_token stopToken)
 
             digest = hash(*desc);
 
-            hashLog_->writeHash(
-                desc->fileId,
-                desc->offset,
-                desc->len,
-                digest);
+            if (hashLog_)
+            {
+                hashLog_->writeHash(
+                    desc->fileId,
+                    desc->offset,
+                    desc->len,
+                    digest);
+            }
+
+            if (cb_)
+                cb_({digest, desc->offset, desc->len, desc->fileId});
         }
 
         spdlog::info("hash: {:#x}", digest);
