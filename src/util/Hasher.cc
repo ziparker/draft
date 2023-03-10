@@ -24,6 +24,8 @@
  * SOFTWARE.
  */
 
+#include <unistd.h>
+
 #include "xxhash.h"
 
 #include <draft/util/Journal.hh>
@@ -58,7 +60,8 @@ bool Hasher::runOnce(std::stop_token stopToken)
 
         {
             auto timer = util::ScopedTimer{[&desc](double sec) {
-                    spdlog::info("xx3 file {} offset {} len {} - {:.06f} sec"
+                    spdlog::info("{}: xx3 file {} offset {} len {} - {:.06f} sec"
+                        , gettid()
                         , desc->fileId
                         , desc->offset
                         , desc->len
