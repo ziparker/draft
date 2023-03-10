@@ -62,7 +62,9 @@ void RxSession::start(util::TransferRequest req)
     if (!conf_.journalPath.empty())
     {
         journal_ = std::make_unique<Journal>(conf_.journalPath, req.config.fileInfo);
-        hashExec_.add(util::Hasher{hashQueue_, journal_}, ThreadExecutor::Options::DoFinalize);
+
+        for (int i = 0; i < 2; ++i)
+            hashExec_.add(util::Hasher{hashQueue_, journal_}, ThreadExecutor::Options::DoFinalize);
     }
 
     auto fileInfo = std::vector<FileInfo>{ };

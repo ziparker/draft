@@ -86,7 +86,8 @@ void TxSession::start(const std::string &path)
 
         // hashers are in a separate executor to make it easier to tell when read
         // execs finish.
-        hashExec_.add(util::Hasher{hashQueue_, journal_}, ThreadExecutor::Options::DoFinalize);
+        for (int i = 0; i < 2; ++i)
+            hashExec_.add(util::Hasher{hashQueue_, journal_}, ThreadExecutor::Options::DoFinalize);
     }
 
     fileIter_ = nextFile(begin(info_), end(info_));
