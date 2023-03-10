@@ -168,7 +168,7 @@ Journal::Journal(std::string path, const std::vector<util::FileInfo> &info)
         ::open(
             path.c_str(),
             O_RDWR | O_CLOEXEC | O_CREAT | O_EXCL,
-            S_IRUSR | S_IWUSR | S_IRGRP)};
+            S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH)};
 
     if (fd_.get() < 0)
     {
