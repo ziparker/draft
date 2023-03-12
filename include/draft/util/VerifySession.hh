@@ -1,9 +1,9 @@
 /**
- * @file Reader.hh
+ * @file VerifySession.hh
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2022 Zachary Parker
+ * Copyright (c) 2023 Zachary Parker
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -24,39 +24,48 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_UTIL_READER_HH__
-#define __DRAFT_UTIL_READER_HH__
+#ifndef __DRAFT_UTIL_VERIFY_SESSION_HH__
+#define __DRAFT_UTIL_VERIFY_SESSION_HH__
 
 #include <memory>
-#include <stop_token>
+#include <string>
+#include <vector>
 
+#include "TaskPool.hh"
+#include "ThreadExecutor.hh"
 #include "Util.hh"
 
 namespace draft::util {
 
-class Reader
+class Journal;
+
+class VerifySession
 {
 public:
-    using Buffer = BufferPool::Buffer;
+    VerifySession(SessionConfig conf);
+    ~VerifySession() noexcept;
 
-    Reader(const std::shared_ptr<ScopedFd> &fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue *queue);
+    void start(const std::string &path);
+    void finish() noexcept;
 
-    int operator()(std::stop_token stopToken);
-
-    void setHashQueue(BufQueue &q)
-    {
-        hashQueue_ = &q;
-    }
+    bool runOnce();
 
 private:
-    size_t read(Buffer &buf);
+    using file_info_iter_type = std::vector<FileInfo>::const_iterator;
 
-    std::shared_ptr<ScopedFd> fd_{ };
-    Segment segment_{ };
-    BufferPoolPtr pool_{ };
-    BufQueue *queue_{ };
-    BufQueue *hashQueue_{ };
-    unsigned fileId_{ };
+    file_info_iter_type nextFile(file_info_iter_type first, file_info_iter_type last);
+
+    bool startFile(const FileInfo &info);
+
+    WaitQueue<BDesc> hashQueue_;
+    std::shared_ptr<BufferPool> pool_;
+    TaskPool readExec_;
+    std::vector<std::future<int>> readResults_;
+    ThreadExecutor hashExec_;
+    std::vector<FileInfo> info_;
+    std::vector<FileInfo>::const_iterator fileIter_;
+    SessionConfig conf_;
+    std::shared_ptr<Journal> journal_;
 };
 
 }

@@ -31,11 +31,11 @@
 
 namespace draft::util {
 
-Reader::Reader(const std::shared_ptr<ScopedFd> &fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue &queue):
+Reader::Reader(const std::shared_ptr<ScopedFd> &fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue *queue):
     fd_{fd},
     segment_{segment},
     pool_{pool},
-    queue_{&queue},
+    queue_{queue},
     fileId_{fileId}
 {
 }
@@ -62,7 +62,8 @@ int Reader::operator()(std::stop_token stopToken)
         //
         // if the queue is pushing back, we don't want to stack-up more
         // work.
-        while (!stopToken.stop_requested() &&
+        while (queue_ &&
+            !stopToken.stop_requested() &&
             !queue_->put({buf, fileId_, segment_.offset, len}, 100ms))
         {
         }
