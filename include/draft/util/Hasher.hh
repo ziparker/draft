@@ -44,7 +44,7 @@ public:
         uint64_t digest{ };
         size_t offset{ };
         size_t size{ };
-        uint16_t fileId{ };
+        unsigned fileId{ };
     };
 
     using Buffer = BufferPool::Buffer;
