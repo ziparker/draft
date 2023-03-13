@@ -94,6 +94,11 @@ public:
     const_iterator begin() const;
     const_iterator end() const;
 
+    std::string path() const
+    {
+        return path_;
+    }
+
 private:
     void writeHeader(const std::vector<FileInfo> &info);
     void writeFileData(const void *data, size_t size);

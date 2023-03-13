@@ -65,7 +65,7 @@ private:
     std::vector<FileInfo> info_;
     std::vector<FileInfo>::const_iterator fileIter_;
     SessionConfig conf_;
-    std::shared_ptr<Journal> journal_;
+    std::shared_ptr<const Journal> journal_;
 };
 
 }

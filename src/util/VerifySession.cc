@@ -33,7 +33,6 @@
 #include <draft/util/Journal.hh>
 #include <draft/util/Reader.hh>
 #include <draft/util/ScopedTimer.hh>
-#include <draft/util/Sender.hh>
 #include <draft/util/ThreadExecutor.hh>
 #include <draft/util/VerifySession.hh>
 
@@ -57,7 +56,8 @@ VerifySession::~VerifySession() noexcept
 
 void VerifySession::start(const std::string &path)
 {
-    journal_ = std::make_unique<Journal>(conf_.journalPath, info_);
+    journal_ = std::make_unique<Journal>(journalPath);
+    info_ = journal_->fileInfo();
 
     // hashers are in a separate executor to make it easier to tell when read
     // execs finish.
@@ -118,7 +118,7 @@ bool VerifySession::runOnce()
 
 VerifySession::file_info_iter_type VerifySession::nextFile(file_info_iter_type first, file_info_iter_type last)
 {
-    while (first != last && (!S_ISREG(first->status.mode) || !first->status.size))
+    if (first != last)
         ++first;
 
     return first;
@@ -139,7 +139,7 @@ bool VerifySession::startFile(const FileInfo &info)
     auto fd = std::make_shared<ScopedFd>(
         ScopedFd{::open(filename.c_str(), flags)});
 
-    spdlog::debug("tx opened file id {}: {} @ fd {}", info.id, filename, fd->get());
+    spdlog::debug("verifier opened file id {}: {} @ fd {}", info.id, filename, fd->get());
 
     auto fileSz = std::filesystem::file_size(filename);
 
@@ -151,9 +151,7 @@ bool VerifySession::startFile(const FileInfo &info)
         const auto rateDeadline = Clock::now() + 1ms;
 
         auto diskRead = Reader(fd, info.id, {0, fileSz}, pool_, nullptr);
-
-        if (!conf_.journalPath.empty())
-            diskRead.setHashQueue(hashQueue_);
+        diskRead.setHashQueue(hashQueue_);
 
         if (auto future = readExec_.launch(std::move(diskRead)))
         {
