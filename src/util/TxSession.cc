@@ -182,7 +182,7 @@ bool TxSession::startFile(const FileInfo &info)
     {
         const auto rateDeadline = Clock::now() + 1ms;
 
-        auto diskRead = Reader(fd, info.id, {0, fileSz}, pool_, queue_);
+        auto diskRead = Reader(fd, info.id, {0, fileSz}, pool_, &queue_);
 
         if (!conf_.journalPath.empty())
             diskRead.setHashQueue(hashQueue_);

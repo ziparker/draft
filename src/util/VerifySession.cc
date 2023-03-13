@@ -54,7 +54,7 @@ VerifySession::~VerifySession() noexcept
     finish();
 }
 
-void VerifySession::start(const std::string &path)
+void VerifySession::start(const std::string &journalPath)
 {
     journal_ = std::make_unique<Journal>(journalPath);
     info_ = journal_->fileInfo();
@@ -62,7 +62,13 @@ void VerifySession::start(const std::string &path)
     // hashers are in a separate executor to make it easier to tell when read
     // execs finish.
     for (int i = 0; i < 2; ++i)
-        hashExec_.add(util::Hasher{hashQueue_, journal_}, ThreadExecutor::Options::DoFinalize);
+    {
+        hashExec_.add(
+            util::Hasher{
+                hashQueue_,
+                [this](const auto &digest) { handleHash(digest); }},
+            ThreadExecutor::Options::DoFinalize);
+    }
 
     fileIter_ = nextFile(begin(info_), end(info_));
 }
@@ -166,6 +172,14 @@ bool VerifySession::startFile(const FileInfo &info)
         , filename);
 
     return false;
+}
+
+void VerifySession::handleHash(const Hasher::DigestInfo &info)
+{
+    spdlog::info("hash info: {} @{}: {:#08x}"
+        , info.fileId
+        , info.offset
+        , info.digest);
 }
 
 }

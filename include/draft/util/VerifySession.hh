@@ -31,6 +31,7 @@
 #include <string>
 #include <vector>
 
+#include "Hasher.hh"
 #include "TaskPool.hh"
 #include "ThreadExecutor.hh"
 #include "Util.hh"
@@ -56,6 +57,7 @@ private:
     file_info_iter_type nextFile(file_info_iter_type first, file_info_iter_type last);
 
     bool startFile(const FileInfo &info);
+    void handleHash(const Hasher::DigestInfo &info);
 
     WaitQueue<BDesc> hashQueue_;
     std::shared_ptr<BufferPool> pool_;
