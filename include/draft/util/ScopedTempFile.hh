@@ -36,7 +36,12 @@ namespace draft::util {
 class ScopedTempFile
 {
 public:
+    ScopedTempFile() = default;
     explicit ScopedTempFile(std::string prefix, std::string suffix = { }, int flags = 0);
+
+    ScopedTempFile(ScopedTempFile &&) = default;
+    ScopedTempFile &operator=(ScopedTempFile &&) = default;
+
     ~ScopedTempFile() noexcept;
 
     int fd() const noexcept;

@@ -28,17 +28,19 @@
 #define __DRAFT_UTIL_VERIFY_SESSION_HH__
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "Hasher.hh"
+#include "Journal.hh"
+#include "JournalOperations.hh"
+#include "ScopedTempFile.hh"
 #include "TaskPool.hh"
 #include "ThreadExecutor.hh"
 #include "Util.hh"
 
 namespace draft::util {
-
-class Journal;
 
 class VerifySession
 {
@@ -48,13 +50,17 @@ public:
         bool useDirectIO{true};
     };
 
-    VerifySession(Config conf);
+    explicit VerifySession(Config conf);
     ~VerifySession() noexcept;
 
     void start(const std::string &path);
     void finish() noexcept;
+    bool finished() const;
 
     bool runOnce();
+
+    // once finished, return the diff result.
+    std::optional<JournalFileDiff> diff();
 
 private:
     using file_info_iter_type = std::vector<FileInfo>::const_iterator;
@@ -72,7 +78,9 @@ private:
     std::vector<FileInfo> info_;
     std::vector<FileInfo>::const_iterator fileIter_;
     Config conf_;
-    std::shared_ptr<const Journal> journal_;
+    util::ScopedTempFile journalFile_;
+    Journal journal_;
+    std::string inputJournalPath_;
 };
 
 }

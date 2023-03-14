@@ -61,6 +61,8 @@ public:
 
     using const_iterator = CursorIter;
 
+    Journal() = default;
+
     /**
      * Open the specified journal for reading.
      *

@@ -30,7 +30,6 @@
 #include <sys/stat.h>
 
 #include <draft/util/Hasher.hh>
-#include <draft/util/Journal.hh>
 #include <draft/util/Reader.hh>
 #include <draft/util/ScopedTimer.hh>
 #include <draft/util/ThreadExecutor.hh>
@@ -56,8 +55,16 @@ VerifySession::~VerifySession() noexcept
 
 void VerifySession::start(const std::string &journalPath)
 {
-    journal_ = std::make_unique<Journal>(journalPath);
-    info_ = journal_->fileInfo();
+    inputJournalPath_ = journalPath;
+    const auto inputJournal = Journal{journalPath};
+
+    journalFile_ = util::ScopedTempFile("journal_", ".draft", O_RDWR | O_CLOEXEC);
+    fchmod(journalFile_.fd(), 0644);
+
+    spdlog::debug("verify session: create temporary journal file, '{}'"
+        , journalFile_.path());
+
+    journal_ = Journal{journalFile_.path(), inputJournal.fileInfo()};
 
     // hashers are in a separate executor to make it easier to tell when read
     // execs finish.
@@ -81,6 +88,11 @@ void VerifySession::finish() noexcept
 
     readExec_.cancel();
     hashExec_.cancel();
+}
+
+bool VerifySession::finished() const
+{
+    return hashExec_.finished();
 }
 
 bool VerifySession::runOnce()
@@ -119,6 +131,16 @@ bool VerifySession::runOnce()
     }
 
     return true;
+}
+
+std::optional<JournalFileDiff> VerifySession::diff()
+{
+    if (!hashExec_.finished())
+        return std::nullopt;
+
+    const auto inputJournal = Journal{inputJournalPath_};
+
+    return diffJournals(inputJournal, journal_);
 }
 
 VerifySession::file_info_iter_type VerifySession::nextFile(file_info_iter_type first, file_info_iter_type last)
@@ -180,6 +202,8 @@ void VerifySession::handleHash(const Hasher::DigestInfo &info)
         , info.fileId
         , info.offset
         , info.digest);
+
+    journal_.writeHash(info.fileId, info.offset, info.size, info.digest);
 }
 
 }
