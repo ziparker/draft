@@ -79,7 +79,9 @@ public:
      * @param path The path of the journal file to create.
      * @param info The file info data to write to the start of the journal.
      */
-    explicit Journal(std::string path, const std::vector<FileInfo> &info);
+    Journal(std::string path, const std::vector<FileInfo> &info);
+
+    Journal(int fd, std::string path, const std::vector<FileInfo> &info);
 
     std::vector<util::FileInfo> fileInfo() const;
 

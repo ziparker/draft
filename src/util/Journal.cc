@@ -182,6 +182,17 @@ Journal::Journal(std::string path, const std::vector<util::FileInfo> &info)
     path_ = std::move(path);
 }
 
+Journal::Journal(int fd, std::string path, const std::vector<FileInfo> &info):
+    fd_(ScopedFd{fd})
+{
+    if (fd_.get() < 0)
+        throw std::invalid_argument(fmt::format("invalid journal file descriptor '{}'", fd));
+
+    writeHeader(info);
+
+    path_ = std::move(path);
+}
+
 std::vector<util::FileInfo> Journal::fileInfo() const
 {
     const auto header = readJournalHeaderJson(fd_.get());

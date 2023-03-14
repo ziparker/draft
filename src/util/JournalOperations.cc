@@ -135,6 +135,8 @@ JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
 
 JournalFileDiff verifyJournal(const Journal &journal, const std::string &)
 {
+    using namespace std::chrono_literals;
+
     auto session = VerifySession{{true}};
 
     session.start(journal.path());
@@ -142,7 +144,19 @@ JournalFileDiff verifyJournal(const Journal &journal, const std::string &)
     while (session.runOnce())
         ;
 
-    return { };
+    session.finish();
+    while (!session.finished())
+        std::this_thread::sleep_for(50ms);
+
+    auto diff = session.diff();
+
+    if (!diff)
+    {
+        spdlog::warn("the verification step has not completed yet - no diff available.");
+        return { };
+    }
+
+    return *diff;
 }
 
 }

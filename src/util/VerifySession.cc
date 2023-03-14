@@ -64,7 +64,8 @@ void VerifySession::start(const std::string &journalPath)
     spdlog::debug("verify session: create temporary journal file, '{}'"
         , journalFile_.path());
 
-    journal_ = Journal{journalFile_.path(), inputJournal.fileInfo()};
+    info_ = inputJournal.fileInfo();
+    journal_ = Journal{journalFile_.fd(), journalFile_.path(), info_};
 
     // hashers are in a separate executor to make it easier to tell when read
     // execs finish.

@@ -87,7 +87,7 @@ Options parseOptions(int argc, char **argv)
                 "usage: {} journal OPTIONS <journal file>\n"
                 "  OPTIONS:\n"
                 "   -d | --dump <type>\n"
-                "       types: birthdate, hashes, file info\n"
+                "       types: birthdate, hashes, info\n"
                 "   -D | --diff\n"
                 "       diff the specified journal files - requires exactly 2 journal arguments.\n"
                 "   -f | --format <formats>\n"
@@ -211,10 +211,48 @@ void dumpHashes(const Journal &journal, const Options &opts)
     }
 }
 
-void verifyJournal(const Journal &journal, const Options &)
+void dumpDiff(const util::JournalFileDiff &diff, const Options &opts)
+{
+    switch (opts.format)
+    {
+        case Options::OutputFormat::Standard:
+            for (const auto &mismatch : diff.diffs)
+            {
+                if (!!mismatch.hashA ^ !!mismatch.hashB)
+                    std::cout << fmt::format("only in {}: ", mismatch.hashA ? "ours" : "theirs");
+
+                std::cout << fmt::format(
+                    "file {} @ offset {} for {}, us: {:#016x} them: {:#016x}\n"
+                    , mismatch.fileId
+                    , mismatch.offset
+                    , mismatch.size
+                    , mismatch.hashA
+                    , mismatch.hashB);
+            }
+
+            break;
+        case Options::OutputFormat::CSV:
+            std::cout << "file_id, offset, size, us (base 16), them (base 16)\n";
+
+            for (const auto &mismatch : diff.diffs)
+            {
+                std::cout << fmt::format(
+                    "{}, {}, {}, {:016x}, {:016x}\n"
+                    , mismatch.fileId
+                    , mismatch.offset
+                    , mismatch.size
+                    , mismatch.hashA
+                    , mismatch.hashB);
+            }
+
+            break;
+    }
+}
+
+void verifyJournal(const Journal &journal, const Options &opts)
 {
     auto diff = util::verifyJournal(journal);
-    (void)diff;
+    dumpDiff(diff, opts);
 }
 
 void dumpFileInfo(const Journal &journal, const Options &opts)
@@ -270,44 +308,6 @@ void processJournal(const std::string &journalPath, const Options &opts)
 
     if (opts.ops.verify)
         verifyJournal(journal, opts);
-}
-
-void dumpDiff(const util::JournalFileDiff &diff, const Options &opts)
-{
-    switch (opts.format)
-    {
-        case Options::OutputFormat::Standard:
-            for (const auto &mismatch : diff.diffs)
-            {
-                if (!!mismatch.hashA ^ !!mismatch.hashB)
-                    std::cout << fmt::format("only in {}: ", mismatch.hashA ? "ours" : "theirs");
-
-                std::cout << fmt::format(
-                    "file {} @ offset {} for {}, us: {:#016x} them: {:#016x}\n"
-                    , mismatch.fileId
-                    , mismatch.offset
-                    , mismatch.size
-                    , mismatch.hashA
-                    , mismatch.hashB);
-            }
-
-            break;
-        case Options::OutputFormat::CSV:
-            std::cout << "file_id, offset, size, us (base 16), them (base 16)\n";
-
-            for (const auto &mismatch : diff.diffs)
-            {
-                std::cout << fmt::format(
-                    "{}, {}, {}, {:016x}, {:016x}\n"
-                    , mismatch.fileId
-                    , mismatch.offset
-                    , mismatch.size
-                    , mismatch.hashA
-                    , mismatch.hashB);
-            }
-
-            break;
-    }
 }
 
 void diffJournals(const Options &opts)
