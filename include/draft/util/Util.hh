@@ -153,6 +153,8 @@ std::string dirname(std::string path);
 
 std::filesystem::path rootedPath(std::filesystem::path root, std::string path, std::string suffix);
 
+std::pair<ScopedFd, std::string> makeTempFile(std::string prefix, std::string suffix, int flags = 0);
+
 namespace net {
 
 ScopedFd bindTun(const std::string &name);

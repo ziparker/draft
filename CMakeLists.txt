@@ -98,6 +98,7 @@ list(APPEND DRAFTUTIL_SRC
     src/util/Receiver.cc
     src/util/RxSession.cc
     src/util/ScopedMMap.cc
+    src/util/ScopedTempFile.cc
     src/util/Sender.cc
     src/util/TaskPool.cc
     src/util/ThreadExecutor.cc

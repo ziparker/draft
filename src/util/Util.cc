@@ -400,6 +400,25 @@ std::filesystem::path rootedPath(std::filesystem::path root, std::string path, s
     return fs::absolute(root);
 }
 
+std::pair<ScopedFd, std::string> makeTempFile(std::string prefix, std::string suffix, int flags)
+{
+    prefix += "XXXXXX";
+
+    const auto suffixLen = suffix.size();
+
+    if (suffixLen > std::numeric_limits<int>::max())
+        throw std::invalid_argument("draft: makeTempFile - suffix too long");
+
+    prefix += std::move(suffix);
+
+    auto fd = ScopedFd{mkostemps(prefix.data(), static_cast<int>(suffixLen), flags)};
+
+    if (fd.get() < 0)
+        throw std::system_error(errno, std::system_category(), "mkostemps");
+
+    return {std::move(fd), std::move(prefix)};
+}
+
 namespace net {
 
 ScopedFd bindTun(const std::string &tun)
@@ -694,6 +713,5 @@ std::vector<ScopedFd> bindNetworkTargets(const std::vector<NetworkTarget> &targe
 
     return {begin(view), end(view)};
 }
-
 
 }

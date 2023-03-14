@@ -37,9 +37,11 @@
 #include <strings.h>
 #include <sys/eventfd.h>
 
-#include <draft/util/PollSet.hh>
-#include <draft/util/Util.hh>
 #include <spdlog/spdlog.h>
+
+#include <draft/util/PollSet.hh>
+#include <draft/util/ScopedTempFile.hh>
+#include <draft/util/Util.hh>
 
 ////////////////////////////////////////////////////////////////////////////////
 // Util
@@ -771,4 +773,20 @@ TEST(wait_q, put_get)
     auto v = q.get();
     ASSERT_TRUE(v);
     EXPECT_EQ(*v, 42);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// ScopedTempFile
+
+TEST(makeTempFile, create)
+{
+    namespace fs = std::filesystem;
+
+    auto path = []{
+            auto f = ScopedTempFile("foo", "bar");
+            EXPECT_TRUE(fs::exists(f.path()));
+            return f.path();
+        }();
+
+    EXPECT_FALSE(fs::exists(path));
 }
