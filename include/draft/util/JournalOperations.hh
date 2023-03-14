@@ -49,7 +49,7 @@ struct JournalFileDiff
 
 JournalFileDiff diffJournals(const draft::util::Journal &journalA, const draft::util::Journal &journalB);
 
-JournalFileDiff verifyJournal(const draft::util::Journal &journalA, const std::string &pathRoot = { });
+JournalFileDiff verifyJournal(const draft::util::Journal &journal, const std::string &pathRoot = { });
 
 }
 

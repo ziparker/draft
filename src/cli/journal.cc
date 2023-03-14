@@ -51,6 +51,7 @@ struct Options
         unsigned dumpHashes : 1;
         unsigned dumpBirthdate  : 1;
         unsigned diff       : 1;
+        unsigned verify     : 1;
     };
 
     enum class OutputFormat
@@ -68,12 +69,13 @@ Options parseOptions(int argc, char **argv)
 {
     using namespace std::string_literals;
 
-    static constexpr const char *shortOpts = "d:Df:h";
+    static constexpr const char *shortOpts = "d:Df:hv";
     static constexpr struct option longOpts[] = {
         {"diff", no_argument, nullptr, 'D'},
         {"dump", required_argument, nullptr, 'd'},
         {"format", required_argument, nullptr, 'f'},
         {"help", no_argument, nullptr, 'h'},
+        {"verify", no_argument, nullptr, 'v'},
         {nullptr, 0, nullptr, 0}
     };
 
@@ -92,6 +94,8 @@ Options parseOptions(int argc, char **argv)
                 "       formats: standard (default), csv\n"
                 "   -h | --help\n"
                 "       show this help\n"
+                "   -v | --verify <journal file>\n"
+                "       verify a journal against local filesystem contents.\n"
                 , ::basename(argv[0]));
         };
 
@@ -125,6 +129,9 @@ Options parseOptions(int argc, char **argv)
             case 'h':
                 usage();
                 std::exit(0);
+            case 'v':
+                opts.ops.verify = 1;
+                break;
             case '?':
                 std::exit(1);
             default:
@@ -204,6 +211,12 @@ void dumpHashes(const Journal &journal, const Options &opts)
     }
 }
 
+void verifyJournal(const Journal &journal, const Options &)
+{
+    auto diff = util::verifyJournal(journal);
+    (void)diff;
+}
+
 void dumpFileInfo(const Journal &journal, const Options &opts)
 {
     const auto &info = journal.fileInfo();
@@ -254,6 +267,9 @@ void processJournal(const std::string &journalPath, const Options &opts)
 
     if (opts.ops.dumpHashes)
         dumpHashes(journal, opts);
+
+    if (opts.ops.verify)
+        verifyJournal(journal, opts);
 }
 
 void dumpDiff(const util::JournalFileDiff &diff, const Options &opts)

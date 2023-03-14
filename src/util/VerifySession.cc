@@ -38,7 +38,7 @@
 
 namespace draft::util {
 
-VerifySession::VerifySession(SessionConfig conf):
+VerifySession::VerifySession(Config conf):
     conf_(std::move(conf))
 {
     readExec_.resize(1);
@@ -71,6 +71,8 @@ void VerifySession::start(const std::string &journalPath)
     }
 
     fileIter_ = nextFile(begin(info_), end(info_));
+
+    spdlog::info("verify session: {} files", info_.size());
 }
 
 void VerifySession::finish() noexcept
@@ -108,14 +110,11 @@ bool VerifySession::runOnce()
 
     // once we've finished submitting reads for all of our files, start
     // processing completions until we're done.
-    //
-    // TODO: use info list, resubmit failed submissions.
-    // TODO: check for resubmission requirement, flush only when we're
-    // done reading.
     if (fileIter_ == end(info_) && readResults_.empty())
     {
         spdlog::trace("waiting on xfer completion.");
 
+        hashExec_.cancel();
         return !hashExec_.finished();
     }
 
@@ -124,7 +123,7 @@ bool VerifySession::runOnce()
 
 VerifySession::file_info_iter_type VerifySession::nextFile(file_info_iter_type first, file_info_iter_type last)
 {
-    if (first != last)
+    while (first != last && (!S_ISREG(first->status.mode) || !first->status.size))
         ++first;
 
     return first;
@@ -161,6 +160,7 @@ bool VerifySession::startFile(const FileInfo &info)
 
         if (auto future = readExec_.launch(std::move(diskRead)))
         {
+            spdlog::info("submitted file {}", info.path);
             readResults_.push_back(std::move(*future));
             return true;
         }

@@ -43,7 +43,12 @@ class Journal;
 class VerifySession
 {
 public:
-    VerifySession(SessionConfig conf);
+    struct Config
+    {
+        bool useDirectIO{true};
+    };
+
+    VerifySession(Config conf);
     ~VerifySession() noexcept;
 
     void start(const std::string &path);
@@ -66,7 +71,7 @@ private:
     ThreadExecutor hashExec_;
     std::vector<FileInfo> info_;
     std::vector<FileInfo>::const_iterator fileIter_;
-    SessionConfig conf_;
+    Config conf_;
     std::shared_ptr<const Journal> journal_;
 };
 
