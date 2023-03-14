@@ -213,6 +213,12 @@ void dumpHashes(const Journal &journal, const Options &opts)
 
 void dumpDiff(const util::JournalFileDiff &diff, const Options &opts)
 {
+    if (diff.diffs.empty())
+    {
+        std::cout << "\t(no differences to display)\n";
+        return;
+    }
+
     switch (opts.format)
     {
         case Options::OutputFormat::Standard:
@@ -319,11 +325,7 @@ void diffJournals(const Options &opts)
     auto journalB = Journal{opts.journals[1]};
 
     auto diff = util::diffJournals(journalA, journalB);
-
-    if (diff.diffs.empty())
-        std::cout << "\t(no differences to display)\n";
-    else
-        dumpDiff(diff, opts);
+    dumpDiff(diff, opts);
 }
 
 }
