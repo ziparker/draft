@@ -32,12 +32,7 @@ bool ThreadExecutor::runOnce()
 {
     std::erase_if(runq_,
         [](const auto &r) {
-            auto rm = !r->runOnce();
-
-            if (rm)
-                spdlog::info("removing thd exec entry.");
-
-            return rm;
+            return !r->runOnce();
         });
 
     return !empty();

@@ -80,7 +80,7 @@ void VerifySession::start(const std::string &journalPath)
 
     fileIter_ = nextFile(begin(info_), end(info_));
 
-    spdlog::info("verify session: {} files", info_.size());
+    spdlog::debug("verify session: {} files", info_.size());
 }
 
 void VerifySession::finish() noexcept
@@ -183,7 +183,6 @@ bool VerifySession::startFile(const FileInfo &info)
 
         if (auto future = readExec_.launch(std::move(diskRead)))
         {
-            spdlog::info("submitted file {}", info.path);
             readResults_.push_back(std::move(*future));
             return true;
         }
@@ -199,7 +198,7 @@ bool VerifySession::startFile(const FileInfo &info)
 
 void VerifySession::handleHash(const Hasher::DigestInfo &info)
 {
-    spdlog::info("hash info: {} @{}: {:#08x}"
+    spdlog::trace("hash info: {} @{}: {:#08x}"
         , info.fileId
         , info.offset
         , info.digest);

@@ -66,7 +66,7 @@ bool Hasher::runOnce(std::stop_token stopToken)
 
         {
             auto timer = util::ScopedTimer{[&desc](double sec) {
-                    spdlog::info("{}: xx3 file {} offset {} len {} - {:.06f} sec"
+                    spdlog::trace("{}: xx3 file {} offset {} len {} - {:.06f} sec"
                         , gettid()
                         , desc->fileId
                         , desc->offset
@@ -89,7 +89,7 @@ bool Hasher::runOnce(std::stop_token stopToken)
                 cb_({digest, desc->offset, desc->len, desc->fileId});
         }
 
-        spdlog::info("hash: {:#x}", digest);
+        spdlog::trace("hash: {:#x}", digest);
     }
 
     return !stopToken.stop_requested();
