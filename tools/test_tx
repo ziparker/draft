@@ -1,0 +1,8 @@
+#!/bin/bash
+
+which draft || {
+    echo "draft executable is not in PATH: $PATH"
+    exit 1
+}
+
+draft send -s 10.76.2.101:5000 -t 10.76.2.101:5001 -t 10.76.3.101:5001 -t 10.76.4.101:5001 $@
