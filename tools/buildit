@@ -3,7 +3,12 @@
 echo "current CC/CXX: $CC/$CXX"
 echo "current CUDACXX: $CUDACXX"
 
-cmake -B exbuild -S external -DCMAKE_INSTALL_PREFIX=env -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=OFF -DDRAFT_ENABLE_CBLOSC=ON -DDRAFT_ENABLE_CUDA=ON
-make -C exbuild -j$(nproc) &&
+#cmake -B exbuild -S external -DCMAKE_INSTALL_PREFIX=env -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=OFF -DDRAFT_ENABLE_CBLOSC=ON -DDRAFT_ENABLE_CUDA=ON
+#make -C exbuild -j$(nproc) &&
+#cmake -B build -S . -DCMAKE_INSTALL_PREFIX=install -DCMAKE_PREFIX_PATH=env\;/usr/local/cuda-11.5/targets/x86_64-linux -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=OFF &&
+#make -C build -j$(nproc)
+
+cmake -B exbuild2 -S external -DCMAKE_INSTALL_PREFIX=env -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=OFF -DDRAFT_ENABLE_CBLOSC=ON
+make -C exbuild2 -j$(nproc) &&
 cmake -B build -S . -DCMAKE_INSTALL_PREFIX=install -DCMAKE_PREFIX_PATH=env\;/usr/local/cuda-11.5/targets/x86_64-linux -DCMAKE_BUILD_TYPE=Debug -DBUILD_SHARED_LIBS=OFF &&
 make -C build -j$(nproc)
