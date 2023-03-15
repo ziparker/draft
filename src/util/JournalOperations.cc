@@ -133,13 +133,13 @@ JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
     return {std::move(diffs)};
 }
 
-JournalFileDiff verifyJournal(const Journal &journal, VerifySession::Config config)
+std::optional<JournalFileDiff> verifyJournal(const Journal &journal, VerifySession::Config config)
 {
     using namespace std::chrono_literals;
 
-    auto session = VerifySession{config};
+    auto session = VerifySession{std::move(config)};
 
-    session.start(journal.path());
+    session.start(journal);
 
     while (session.runOnce())
         ;
@@ -153,10 +153,40 @@ JournalFileDiff verifyJournal(const Journal &journal, VerifySession::Config conf
     if (!diff)
     {
         spdlog::warn("the verification step has not completed yet - no diff available.");
-        return { };
+        return std::nullopt;
     }
 
-    return *diff;
+    return diff;
+}
+
+std::optional<Journal> createJournal(std::vector<FileInfo> info, VerifySession::Config config, const std::string &path)
+{
+    using namespace std::chrono_literals;
+
+    auto session = VerifySession{std::move(config)};
+
+    session.start(std::move(info));
+
+    while (session.runOnce())
+        ;
+
+    session.finish();
+    while (!session.finished())
+        std::this_thread::sleep_for(50ms);
+
+    auto journal = std::move(session).releaseJournal();
+
+    if (!journal)
+    {
+        spdlog::warn("the journal creation step has not completed yet "
+            "- no journal available.");
+
+        return journal;
+    }
+
+    journal->rename(path);
+
+    return journal;
 }
 
 }

@@ -25,6 +25,7 @@
  */
 
 #include <chrono>
+#include <cstdio>
 
 #include <endian.h>
 #include <fcntl.h>
@@ -381,6 +382,18 @@ Journal::const_iterator Journal::begin() const
 Journal::const_iterator Journal::end() const
 {
     return cursor().seek(0, Cursor::End);
+}
+
+int Journal::rename(const std::string &path)
+{
+    auto stat = ::rename(path_.c_str(), path.c_str());
+
+    if (stat)
+        return -errno;
+
+    path_ = std::move(path);
+
+    return 0;
 }
 
 ////////////////////////////////////////////////////////////////////////////////

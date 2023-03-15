@@ -36,7 +36,11 @@ namespace draft::util {
 
 JournalFileDiff diffJournals(const draft::util::Journal &journalA, const draft::util::Journal &journalB);
 
-JournalFileDiff verifyJournal(const Journal &journal, VerifySession::Config config);
+std::optional<JournalFileDiff> verifyJournal(
+    const Journal &journal, VerifySession::Config config);
+
+std::optional<Journal> createJournal(
+    std::vector<FileInfo> info, VerifySession::Config config, const std::string &path);
 
 }
 

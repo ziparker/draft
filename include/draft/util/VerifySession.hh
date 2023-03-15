@@ -52,7 +52,9 @@ public:
     explicit VerifySession(Config conf);
     ~VerifySession() noexcept;
 
-    void start(const std::string &path);
+    // TODO: consider restart cases, adjust to remove 2 stage start.
+    void start(const Journal &input);
+    void start(std::vector<FileInfo> input);
     void finish() noexcept;
     bool finished() const;
 
@@ -60,6 +62,7 @@ public:
 
     // once finished, return the diff result.
     std::optional<JournalFileDiff> diff();
+    std::optional<Journal> releaseJournal() &&;
 
 private:
     using file_info_iter_type = std::vector<FileInfo>::const_iterator;

@@ -95,6 +95,15 @@ public:
      */
     Journal(std::string path, const std::vector<FileInfo> &info);
 
+    /**
+     * Create a Journal from the specified descriptor.
+     *
+     * The file is truncated to zero bytes prior to adding the file info.
+     *
+     * @param fd The file descriptor of the journal file.
+     * @param path The path of the journal file.
+     * @param info The file info data to write to the start of the journal.
+     */
     Journal(int fd, std::string path, const std::vector<FileInfo> &info);
 
     std::vector<util::FileInfo> fileInfo() const;
@@ -116,6 +125,8 @@ public:
     {
         return path_;
     }
+
+    int rename(const std::string &path);
 
 private:
     void writeHeader(const std::vector<FileInfo> &info);

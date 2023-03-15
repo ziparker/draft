@@ -54,6 +54,7 @@ struct Options
         unsigned dumpBirthdate  : 1;
         unsigned diff       : 1;
         unsigned verify     : 1;
+        unsigned create     : 1;
     };
 
     enum class OutputFormat
@@ -65,14 +66,16 @@ struct Options
     std::vector<std::string> journals{ };
     OutputFormat format{ };
     Operations ops{ };
+    std::string rootPath{ };
 };
 
 Options parseOptions(int argc, char **argv)
 {
     using namespace std::string_literals;
 
-    static constexpr const char *shortOpts = "d:Df:hv";
+    static constexpr const char *shortOpts = "c:d:Df:hv";
     static constexpr struct option longOpts[] = {
+        {"create", required_argument, nullptr, 'c'},
         {"diff", no_argument, nullptr, 'D'},
         {"dump", required_argument, nullptr, 'd'},
         {"format", required_argument, nullptr, 'f'},
@@ -88,6 +91,8 @@ Options parseOptions(int argc, char **argv)
             std::cout << fmt::format(
                 "usage: {} journal OPTIONS <journal file>\n"
                 "  OPTIONS:\n"
+                "   -c | --create <root path>\n"
+                "       specify the root of the file path to create a journal for.\n"
                 "   -d | --dump <type>\n"
                 "       types: birthdate, hashes, info\n"
                 "   -D | --diff\n"
@@ -107,6 +112,10 @@ Options parseOptions(int argc, char **argv)
     {
         switch (c)
         {
+            case 'c':
+                opts.rootPath = optarg;
+                opts.ops.create = 1;
+                break;
             case 'd':
                 if (optarg == "birthdate"s)
                     opts.ops.dumpBirthdate = 1;
@@ -257,7 +266,7 @@ void dumpDiff(const util::JournalFileDiff &diff, const Options &opts)
     }
 }
 
-void verifyJournal(const Journal &journal, const Options &opts)
+int verifyJournal(const Journal &journal, const Options &opts)
 {
     auto config = util::VerifySession::Config{
             .useDirectIO = true
@@ -265,7 +274,26 @@ void verifyJournal(const Journal &journal, const Options &opts)
 
     auto diff = util::verifyJournal(journal, std::move(config));
 
-    dumpDiff(diff, opts);
+    if (!diff)
+        return 1;
+
+    dumpDiff(*diff, opts);
+
+    return 0;
+}
+
+int createJournal(const std::string &journalPath, const Options &opts)
+{
+    auto config = util::VerifySession::Config{
+            .useDirectIO = true
+        };
+
+    auto info = util::getFileInfo(opts.rootPath);
+
+    if (!util::createJournal(std::move(info), std::move(config), journalPath))
+        return 1;
+
+    return 0;
 }
 
 void dumpFileInfo(const Journal &journal, const Options &opts)
@@ -306,7 +334,7 @@ void dumpFileInfo(const Journal &journal, const Options &opts)
     }
 }
 
-void processJournal(const std::string &journalPath, const Options &opts)
+int processJournal(const std::string &journalPath, const Options &opts)
 {
     auto journal = Journal{journalPath};
 
@@ -321,18 +349,25 @@ void processJournal(const std::string &journalPath, const Options &opts)
 
     if (opts.ops.verify)
         verifyJournal(journal, opts);
+
+    return 0;
 }
 
-void diffJournals(const Options &opts)
+int diffJournals(const Options &opts)
 {
     if (opts.journals.size() < 2)
+    {
         std::cerr << "diff requires exactly 2 journal files.\n";
+        return 1;
+    }
 
     auto journalA = Journal{opts.journals[0]};
     auto journalB = Journal{opts.journals[1]};
 
     auto diff = util::diffJournals(journalA, journalB);
     dumpDiff(diff, opts);
+
+    return 0;
 }
 
 }
@@ -341,13 +376,18 @@ int journal(int argc, char **argv)
 {
     const auto opts = parseOptions(argc, argv);
 
+    if (opts.ops.create && !opts.journals.empty())
+        return createJournal(opts.journals.front(), opts);
+
+    int stat = 0;
+
     for (const auto &journal : opts.journals)
-        processJournal(journal, opts);
+        stat += processJournal(journal, opts);
 
     if (opts.ops.diff)
-        diffJournals(opts);
+        stat += diffJournals(opts);
 
-    return 0;
+    return stat;
 }
 
 }

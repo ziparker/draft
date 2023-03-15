@@ -54,10 +54,9 @@ VerifySession::~VerifySession() noexcept
     finish();
 }
 
-void VerifySession::start(const std::string &journalPath)
+void VerifySession::start(const Journal &inputJournal)
 {
-    inputJournalPath_ = journalPath;
-    const auto inputJournal = Journal{journalPath};
+    inputJournalPath_ = inputJournal.path();
 
     journalFile_ = util::ScopedTempFile("journal_", ".draft", O_RDWR | O_CLOEXEC);
     fchmod(journalFile_.fd(), 0644);
@@ -82,6 +81,33 @@ void VerifySession::start(const std::string &journalPath)
     fileIter_ = nextFile(begin(info_), end(info_));
 
     spdlog::debug("verify session: {} files", info_.size());
+}
+
+void VerifySession::start(std::vector<FileInfo> fileInfo)
+{
+    journalFile_ = util::ScopedTempFile("journal_", ".draft", O_RDWR | O_CLOEXEC);
+    fchmod(journalFile_.fd(), 0644);
+
+    spdlog::debug("verify session: create temporary journal file, '{}'"
+        , journalFile_.path());
+
+    info_ = std::move(fileInfo);
+    journal_ = Journal{journalFile_.fd(), journalFile_.path(), info_};
+
+    // hashers are in a separate executor to make it easier to tell when read
+    // execs finish.
+    for (int i = 0; i < 2; ++i)
+    {
+        hashExec_.add(
+            util::Hasher{
+                hashQueue_,
+                [this](const auto &digest) { handleHash(digest); }},
+            ThreadExecutor::Options::DoFinalize);
+    }
+
+    fileIter_ = nextFile(begin(info_), end(info_));
+
+    spdlog::debug("journal generation session: {} files", info_.size());
 }
 
 void VerifySession::finish() noexcept
@@ -143,6 +169,16 @@ std::optional<JournalFileDiff> VerifySession::diff()
     const auto inputJournal = Journal{inputJournalPath_};
 
     return diffJournals(inputJournal, journal_);
+}
+
+std::optional<Journal> VerifySession::releaseJournal() &&
+{
+    if (!hashExec_.finished())
+        return std::nullopt;
+
+    journalFile_.releaseFd();
+
+    return std::move(journal_);
 }
 
 VerifySession::file_info_iter_type VerifySession::nextFile(file_info_iter_type first, file_info_iter_type last)
