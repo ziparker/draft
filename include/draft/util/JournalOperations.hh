@@ -30,26 +30,13 @@
 #include <vector>
 
 #include "Journal.hh"
+#include "VerifySession.hh"
 
 namespace draft::util {
 
-struct JournalFileDiff
-{
-    struct Difference
-    {
-        uint64_t offset{ };
-        uint64_t size{ };
-        uint64_t hashA{ };
-        uint64_t hashB{ };
-        uint16_t fileId{ };
-    };
-
-    std::vector<Difference> diffs;
-};
-
 JournalFileDiff diffJournals(const draft::util::Journal &journalA, const draft::util::Journal &journalB);
 
-JournalFileDiff verifyJournal(const draft::util::Journal &journal, const std::string &pathRoot = { });
+JournalFileDiff verifyJournal(const Journal &journal, VerifySession::Config config);
 
 }
 

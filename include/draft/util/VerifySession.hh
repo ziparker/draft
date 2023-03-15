@@ -34,7 +34,6 @@
 
 #include "Hasher.hh"
 #include "Journal.hh"
-#include "JournalOperations.hh"
 #include "ScopedTempFile.hh"
 #include "TaskPool.hh"
 #include "ThreadExecutor.hh"

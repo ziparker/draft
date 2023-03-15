@@ -42,6 +42,20 @@
 
 namespace draft::util {
 
+struct JournalFileDiff
+{
+    struct Difference
+    {
+        uint64_t offset{ };
+        uint64_t size{ };
+        uint64_t hashA{ };
+        uint64_t hashB{ };
+        uint16_t fileId{ };
+    };
+
+    std::vector<Difference> diffs;
+};
+
 class Cursor;
 class CursorIter;
 

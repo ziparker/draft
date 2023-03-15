@@ -133,11 +133,11 @@ JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
     return {std::move(diffs)};
 }
 
-JournalFileDiff verifyJournal(const Journal &journal, const std::string &)
+JournalFileDiff verifyJournal(const Journal &journal, VerifySession::Config config)
 {
     using namespace std::chrono_literals;
 
-    auto session = VerifySession{{true}};
+    auto session = VerifySession{config};
 
     session.start(journal.path());
 

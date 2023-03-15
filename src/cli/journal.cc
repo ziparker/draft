@@ -35,8 +35,10 @@
 
 #include <draft/util/Journal.hh>
 
-#include "Cmd.hh"
 #include <draft/util/JournalOperations.hh>
+#include <draft/util/VerifySession.hh>
+
+#include "Cmd.hh"
 
 namespace draft::cmd {
 namespace {
@@ -257,7 +259,12 @@ void dumpDiff(const util::JournalFileDiff &diff, const Options &opts)
 
 void verifyJournal(const Journal &journal, const Options &opts)
 {
-    auto diff = util::verifyJournal(journal);
+    auto config = util::VerifySession::Config{
+            .useDirectIO = true
+        };
+
+    auto diff = util::verifyJournal(journal, std::move(config));
+
     dumpDiff(diff, opts);
 }
 

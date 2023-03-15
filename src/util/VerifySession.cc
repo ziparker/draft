@@ -30,6 +30,7 @@
 #include <sys/stat.h>
 
 #include <draft/util/Hasher.hh>
+#include <draft/util/JournalOperations.hh>
 #include <draft/util/Reader.hh>
 #include <draft/util/ScopedTimer.hh>
 #include <draft/util/ThreadExecutor.hh>
