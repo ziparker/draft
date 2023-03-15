@@ -230,7 +230,7 @@ void dumpDiff(const util::JournalFileDiff &diff, const Options &opts)
                     std::cout << fmt::format("only in {}: ", mismatch.hashA ? "ours" : "theirs");
 
                 std::cout << fmt::format(
-                    "file {} @ offset {} for {}, us: {:#016x} them: {:#016x}\n"
+                    "file {} @ block offset {} for {}, us: {:#016x} them: {:#016x}\n"
                     , mismatch.fileId
                     , mismatch.offset
                     , mismatch.size
@@ -240,7 +240,7 @@ void dumpDiff(const util::JournalFileDiff &diff, const Options &opts)
 
             break;
         case Options::OutputFormat::CSV:
-            std::cout << "file_id, offset, size, us (base 16), them (base 16)\n";
+            std::cout << "file_id, block offset, size, us (base 16), them (base 16)\n";
 
             for (const auto &mismatch : diff.diffs)
             {
