@@ -75,6 +75,7 @@ list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
 
 find_package(nlohmann_json REQUIRED)
 find_package(spdlog REQUIRED)
+find_package(ustat QUIET)
 find_package(xxhash REQUIRED)
 
 find_library(blosc2_LIBRARY blosc2)
@@ -150,6 +151,12 @@ if (nvcomp_LIBRARY)
     target_link_libraries(draftutil PRIVATE ${nvcomp_LIBRARY} ${cufile_LIBRARY} CUDA::cudart)
     target_include_directories(draftutil SYSTEM PRIVATE ${nvcomp_INCLUDE_DIRS} ${cufile_INCLUDE_DIRS})
     target_include_directories(draft SYSTEM PRIVATE ${cufile_INCLUDE_DIRS})
+endif ()
+
+if (ustat_FOUND)
+    message(STATUS "draft: enabling ustat.")
+    target_compile_definitions(draftutil PRIVATE DRAFT_HAVE_USTAT=1)
+    target_link_libraries(draftutil PRIVATE ustat::ustat)
 endif ()
 
 if (DRAFT_ENABLE_TESTS)

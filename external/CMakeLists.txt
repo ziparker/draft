@@ -73,6 +73,16 @@ ExternalProject_Add(
         -DSPDLOG_BUILD_SHARED=${BUILD_SHARED_LIBS}
         -DSPDLOG_INSTALL=ON)
 
+if (DRAFT_ENABLE_USTAT)
+    ExternalProject_Add(
+        ustat
+        GIT_REPOSITORY git@github.com:ziparker/ustat.git
+        GIT_TAG master
+        CMAKE_ARGS
+            -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
+            -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX})
+endif ()
+
 ExternalProject_Add(
     xxhash
     GIT_REPOSITORY https://github.com/Cyan4973/xxHash.git
