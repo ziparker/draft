@@ -58,7 +58,7 @@ void VerifySession::start(const Journal &inputJournal)
 {
     inputJournalPath_ = inputJournal.path();
 
-    journalFile_ = util::ScopedTempFile("journal_", ".draft", O_RDWR | O_CLOEXEC);
+    journalFile_ = util::ScopedTempFile("/tmp/journal_", ".draft", O_RDWR | O_CLOEXEC);
     fchmod(journalFile_.fd(), 0644);
 
     spdlog::debug("verify session: create temporary journal file, '{}'"
@@ -85,7 +85,7 @@ void VerifySession::start(const Journal &inputJournal)
 
 void VerifySession::start(std::vector<FileInfo> fileInfo)
 {
-    journalFile_ = util::ScopedTempFile("journal_", ".draft", O_RDWR | O_CLOEXEC);
+    journalFile_ = util::ScopedTempFile("/tmp/journal_", ".draft", O_RDWR | O_CLOEXEC);
     fchmod(journalFile_.fd(), 0644);
 
     spdlog::debug("verify session: create temporary journal file, '{}'"
@@ -152,8 +152,6 @@ bool VerifySession::runOnce()
     // processing completions until we're done.
     if (fileIter_ == end(info_) && readResults_.empty())
     {
-        spdlog::trace("waiting on xfer completion.");
-
         hashExec_.cancel();
         return !hashExec_.finished();
     }

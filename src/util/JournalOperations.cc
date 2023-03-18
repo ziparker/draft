@@ -95,8 +95,6 @@ JournalFileDiff diffJournals(const Journal &journalA, const Journal &journalB)
             map.insert({
                 {record.fileId, record.offset},
                 {record.size, record.hash, which}});
-
-            spdlog::debug("diff map size: {}", map.size());
         };
 
     while (iterA != endA || iterB != endB)
@@ -142,7 +140,7 @@ std::optional<JournalFileDiff> verifyJournal(const Journal &journal, VerifySessi
     session.start(journal);
 
     while (session.runOnce())
-        ;
+        std::this_thread::sleep_for(50ms);
 
     session.finish();
     while (!session.finished())
@@ -168,7 +166,7 @@ std::optional<Journal> createJournal(std::vector<FileInfo> info, VerifySession::
     session.start(std::move(info));
 
     while (session.runOnce())
-        ;
+        std::this_thread::sleep_for(50ms);
 
     session.finish();
     while (!session.finished())
