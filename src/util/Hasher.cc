@@ -100,7 +100,7 @@ uint64_t Hasher::hash(const BDesc &desc)
     if (!desc.buf)
         return 0;
 
-    return XXH3_64bits(desc.buf->data(), desc.buf->size());
+    return XXH3_64bits(desc.buf->data(), desc.len);
 }
 
 }
