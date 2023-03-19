@@ -81,6 +81,7 @@ if (DRAFT_ENABLE_USTAT)
         CMAKE_ARGS
             -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
             -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX})
+    add_dependencies(ustat spdlog)
 endif ()
 
 ExternalProject_Add(

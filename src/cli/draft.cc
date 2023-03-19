@@ -39,6 +39,7 @@
 #include <spdlog/spdlog.h>
 #include <spdlog/cfg/env.h>
 
+#include <draft/util/DraftUstat.hh>
 #include <draft/util/UtilJson.hh>
 #include <draft/util/Version.hh>
 #include "Cmd.hh"
@@ -96,6 +97,8 @@ int main(int argc, char **argv)
     spdlog::cfg::load_env_levels();
 
     spdlog::info("draft build {}", draft::util::versionString());
+
+    draft::metric::configure();
 
     try {
         dispatchSubcommand(argc, argv);
