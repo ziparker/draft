@@ -57,7 +57,8 @@ void RxSession::start(util::TransferRequest req)
 {
     namespace fs = std::filesystem;
 
-    createTargetFiles(conf_.pathRoot, req.config.fileInfo);
+    if (!conf_.noWrite)
+        createTargetFiles(conf_.pathRoot, req.config.fileInfo);
 
     if (!conf_.journalPath.empty())
     {
@@ -67,44 +68,7 @@ void RxSession::start(util::TransferRequest req)
             hashExec_.add(util::Hasher{hashQueue_, journal_}, ThreadExecutor::Options::DoFinalize);
     }
 
-    auto fileInfo = std::vector<FileInfo>{ };
-    auto fileMap = FdMap{ };
-    for (const auto &item : req.config.fileInfo)
-    {
-        if (!S_ISREG(item.status.mode))
-            continue;
-
-        auto path = rootedPath(
-            conf_.pathRoot,
-            item.path,
-            item.targetSuffix);
-
-        auto flags = O_WRONLY;
-
-        if (conf_.useDirectIO)
-            flags |= O_DIRECT;
-
-        auto fd = ScopedFd{::open(path.c_str(), flags)};
-        auto rawFd = fd.get();
-
-        if (rawFd < 0)
-        {
-            spdlog::error("unable to open file '{}': {}"
-                , path.native()
-                , std::strerror(errno));
-
-            continue;
-        }
-
-        fileInfo.push_back({
-            path,
-            std::move(fd),
-            item.status.size,
-            item.status.mode
-        });
-
-        fileMap.insert({item.id, rawFd});
-    }
+    auto [fileMap, fileInfo] = createFiles(req);
 
     const auto view = std::views::transform(
         targetFds_, [this](auto &&fd){
@@ -122,7 +86,10 @@ void RxSession::start(util::TransferRequest req)
 
     recvExec_.add(std::move(receivers));
 
-    writeExec_.add(Writer(std::move(fileMap), queue_), ThreadExecutor::Options::DoFinalize);
+    auto writer = Writer(std::move(fileMap), queue_);
+    writer.setWritesEnabled(!conf_.noWrite);
+
+    writeExec_.add(std::move(writer), ThreadExecutor::Options::DoFinalize);
 
     fileInfo_ = std::move(fileInfo);
 }
@@ -138,7 +105,8 @@ void RxSession::finish() noexcept
         journal_->sync();
 
     // truncate after each file.
-    truncateFiles();
+    if (!conf_.noWrite)
+        truncateFiles();
 }
 
 void RxSession::truncateFiles()
@@ -178,6 +146,56 @@ bool RxSession::runOnce()
     writeExec_.runOnce();
 
     return false;
+}
+
+std::pair<FdMap, std::vector<RxSession::FileInfo>> RxSession::createFiles(
+    const util::TransferRequest &req)
+{
+    auto fileMap = FdMap{ };
+    auto fileInfo = std::vector<FileInfo>{ };
+
+    for (const auto &item : req.config.fileInfo)
+    {
+        if (!S_ISREG(item.status.mode))
+            continue;
+
+        auto path = rootedPath(
+            conf_.pathRoot,
+            item.path,
+            item.targetSuffix);
+
+        auto flags = O_WRONLY;
+
+        if (conf_.useDirectIO)
+            flags |= O_DIRECT;
+
+        auto fd = ScopedFd{ };
+
+        if (!conf_.noWrite)
+            fd = ScopedFd{::open(path.c_str(), flags)};
+
+        auto rawFd = fd.get();
+
+        if (rawFd < 0)
+        {
+            spdlog::error("unable to open file '{}': {}"
+                , path.native()
+                , std::strerror(errno));
+
+            continue;
+        }
+
+        fileInfo.push_back({
+            path,
+            std::move(fd),
+            item.status.size,
+            item.status.mode
+        });
+
+        fileMap.insert({item.id, rawFd});
+    }
+
+    return {std::move(fileMap), std::move(fileInfo)};
 }
 
 }

@@ -83,11 +83,12 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
         OptJournalPath = 128
     };
 
-    static constexpr const char *shortOpts = "hjJ:np:Ps:t:";
+    static constexpr const char *shortOpts = "hjJ:nNp:Ps:t:";
     static constexpr struct option longOpts[] = {
         {"help", no_argument, nullptr, 'h'},
         {"journal", no_argument, nullptr, 'j'},
         {"nodirect", no_argument, nullptr, 'n'},
+        {"nowrites", no_argument, nullptr, 'N'},
         {"path", required_argument, nullptr, 'p'},
         {"progress", no_argument, nullptr, 'P'},
         {"service", required_argument, nullptr, 's'},
@@ -101,7 +102,7 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
 
     const auto usage = [argv] {
             std::cout << fmt::format(
-                "usage: {} (send|recv) [-h][-j][-J [<path>][-n][-p <path>][-P][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
+                "usage: {} (send|recv) [-h][-j][-J [<path>][-n][N][-p <path>][-P][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
                 , ::basename(argv[0]));
         };
 
@@ -120,6 +121,8 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
                 "   -n | --nodirect\n"
                 "       disable the use of direct-io.\n"
                 "       this enables usage on filesystems that don't support it.\n"
+                "   -N | --nowrites\n"
+                "       disable writes to disk (receive side).\n"
                 "   -p | --path <transfer path root>\n"
                 "       (send only) - path to directory to send.\n"
                 "       the target tree is recreated, in full, on the receive side.\n"
@@ -151,6 +154,9 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
                 break;
             case 'n':
                 opts.session.useDirectIO = false;
+                break;
+            case 'N':
+                opts.session.noWrite = true;
                 break;
             case 'p':
                 opts.session.pathRoot = optarg;

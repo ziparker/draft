@@ -132,6 +132,7 @@ struct SessionConfig
     std::string pathRoot{"."};
     std::string journalPath{ };
     bool useDirectIO{true};
+    bool noWrite{false};
 };
 
 using BufQueue = WaitQueue<BDesc>;

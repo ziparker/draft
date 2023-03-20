@@ -59,6 +59,9 @@ private:
         mode_t mode{ };
     };
 
+    std::pair<FdMap, std::vector<FileInfo>> createFiles(
+        const util::TransferRequest &req);
+
     WaitQueue<BDesc> queue_;
     WaitQueue<BDesc> hashQueue_;
     std::shared_ptr<BufferPool> pool_;
