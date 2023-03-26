@@ -29,6 +29,7 @@
 
 #include <stop_token>
 
+#include "Journal.hh"
 #include "Util.hh"
 
 namespace draft::util {

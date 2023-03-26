@@ -31,7 +31,6 @@
 
 #include <spdlog/spdlog.h>
 
-#include <draft/util/Hasher.hh>
 #include <draft/util/Journal.hh>
 #include <draft/util/Receiver.hh>
 #include <draft/util/RxSession.hh>
@@ -44,8 +43,6 @@ RxSession::RxSession(SessionConfig conf):
 {
     pool_ = BufferPool::make(BufSize, 35);
     targetFds_ = bindNetworkTargets(conf_.targets);
-
-    hashQueue_.setSizeLimit(100);
 }
 
 RxSession::~RxSession() noexcept
@@ -61,24 +58,24 @@ void RxSession::start(util::TransferRequest req)
         createTargetFiles(conf_.pathRoot, req.config.fileInfo);
 
     if (!conf_.journalPath.empty())
-    {
         journal_ = std::make_unique<Journal>(conf_.journalPath, req.config.fileInfo);
-
-        for (int i = 0; i < 2; ++i)
-            hashExec_.add(util::Hasher{hashQueue_, journal_}, ThreadExecutor::Options::DoFinalize);
-    }
 
     auto [fileMap, fileInfo] = createFiles(req);
 
     const auto view = std::views::transform(
         targetFds_, [this](auto &&fd){
-            return Receiver{std::move(fd), queue_,
-                conf_.journalPath.empty() ? nullptr : &hashQueue_};
+            return Receiver{std::move(fd), queue_};
         });
 
     auto receivers = std::vector<Receiver>{
         std::make_move_iterator(begin(view)),
         std::make_move_iterator(end(view))};
+
+    if (journal_)
+    {
+        for (auto &receiver : receivers)
+            receiver.useHashLog(journal_);
+    }
 
     targetFds_ = std::vector<ScopedFd>{ };
 
@@ -99,7 +96,6 @@ void RxSession::finish() noexcept
     recvExec_.cancel();
     writeExec_.cancel();
     writeExec_.waitFinished();
-    hashExec_.cancel();
 
     if (journal_)
         journal_->sync();

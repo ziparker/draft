@@ -31,6 +31,8 @@
 #include <draft/util/Receiver.hh>
 #include <draft/util/Stats.hh>
 
+#include "xxhash.h"
+
 namespace draft::util {
 
 Receiver::Receiver(ScopedFd fd, BufQueue &queue, BufQueue *hashQueue):
@@ -107,6 +109,14 @@ bool Receiver::waitData(std::stop_token stopToken)
             , header_.fileId);
 
         auto buf = std::make_shared<Buffer>(std::move(buf_));
+
+        if (hashLog_)
+        {
+            const auto digest = XXH3_64bits(buf->data(), header_.payloadLength);
+
+            hashLog_->writeHash(
+                header_.fileId, header_.fileOffset, header_.payloadLength, digest);
+        }
 
         while (!stopToken.stop_requested() &&
             !queue_->put({
