@@ -132,6 +132,35 @@ BufferPool::Buffer BufferPool::get()
     };
 }
 
+BufferPool::Buffer BufferPool::get(std::chrono::steady_clock::time_point deadline)
+{
+    Lock lk(mtx_, std::defer_lock_t{ });
+    if (!lk.try_lock_until(deadline))
+        return { };
+
+    size_t idx{ };
+
+    if (!cond_.wait_until(lk, deadline, [this, &idx] {
+        if (done_)
+            return true;
+        idx = freeList_.get();
+        return idx != FreeList::End;
+    }))
+    {
+        return { };
+    }
+
+    if (done_ || idx == FreeList::End)
+        return { };
+
+    return {
+        shared_from_this(),
+        idx,
+        mmap_.uint8Data(idx * chunkSize_),
+        chunkSize_
+    };
+}
+
 BufferPool::BufferPool(size_t chunkSize, size_t chunkCount):
     chunkSize_(chunkSize),
     chunkCount_(chunkCount)

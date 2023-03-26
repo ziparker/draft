@@ -24,6 +24,8 @@
  * SOFTWARE.
  */
 
+#include <chrono>
+
 #include <spdlog/spdlog.h>
 
 #include <draft/util/Reader.hh>
@@ -43,10 +45,14 @@ Reader::Reader(const std::shared_ptr<ScopedFd> &fd, unsigned fileId, Segment seg
 int Reader::operator()(std::stop_token stopToken)
 {
     using namespace std::chrono_literals;
+    using Clock = std::chrono::steady_clock;
 
     while (!stopToken.stop_requested())
     {
-        auto buf = std::make_shared<Buffer>(pool_->get());
+        auto buf = std::make_shared<Buffer>(pool_->get(Clock::now() + 20ms));
+
+        if (!buf)
+            continue;
 
         auto len = read(*buf);
 
