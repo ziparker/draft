@@ -102,8 +102,20 @@ private:
         {
             thd_ = std::jthread(
                 [this](std::stop_token token, T t_) mutable {
-                    while (!token.stop_requested() && t_.runOnce(token))
-                        ;
+                    while (!token.stop_requested())
+                    {
+                        try
+                        {
+                            if (!t_.runOnce(token))
+                                break;
+                        } catch (const std::exception &e) {
+                            const auto id = std::this_thread::get_id();
+                            spdlog::warn("thd {:#x} exception: {}"
+                                , std::hash<std::thread::id>{ }(id)
+                                , e.what());
+                            break;
+                        }
+                    }
 
                     if (token.stop_requested() && (options_ & Options::DoFinalize))
                     {

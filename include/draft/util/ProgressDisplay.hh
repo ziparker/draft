@@ -118,12 +118,12 @@ inline std::ostream &operator<<(std::ostream &stream, const ETA &e)
 
 inline std::ostream &operator<<(std::ostream &s, const CursorInvisible &)
 {
-    return s << "\x1b[?25l;";
+    return s << "\x1b[?25l";
 }
 
 inline std::ostream &operator<<(std::ostream &s, const CursorVisible &)
 {
-    return s << "\x1b[?25h;";
+    return s << "\x1b[?25h";
 }
 
 inline std::ostream &operator<<(std::ostream &s, const ClearScreen &)
