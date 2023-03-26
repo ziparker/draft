@@ -28,7 +28,6 @@
 
 #include "xxhash.h"
 
-#include <draft/util/DraftUstat.hh>
 #include <draft/util/Hasher.hh>
 #include <draft/util/Journal.hh>
 #include <draft/util/ScopedTimer.hh>
@@ -100,9 +99,6 @@ uint64_t Hasher::hash(const BDesc &desc)
 {
     if (!desc.buf)
         return 0;
-
-    thread_local auto counter = metric::counter_metric(fmt::format("xx3 {:#x}", gettid()));
-    counter.increment();
 
     return XXH3_64bits(desc.buf->data(), desc.len);
 }

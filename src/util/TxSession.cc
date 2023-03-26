@@ -29,7 +29,6 @@
 
 #include <sys/stat.h>
 
-#include <draft/util/Hasher.hh>
 #include <draft/util/Journal.hh>
 #include <draft/util/Reader.hh>
 #include <draft/util/ScopedTimer.hh>
@@ -46,7 +45,6 @@ TxSession::TxSession(SessionConfig conf):
     readExec_.setQueueSizeLimit(10);
 
     queue_.setSizeLimit(100);
-    hashQueue_.setSizeLimit(100);
 
     pool_ = BufferPool::make(BufSize, 35);
     targetFds_ = connectNetworkTargets(conf_.targets);
@@ -73,22 +71,20 @@ void TxSession::start(const std::string &path)
         std::make_move_iterator(begin(view)),
         std::make_move_iterator(end(view))};
 
-    // clear targets since we've moved them into senders.
-    targetFds_ = std::vector<ScopedFd>{ };
-
-    sendExec_.add(std::move(senders), ThreadExecutor::Options::DoFinalize);
-
     info_ = getFileInfo(path);
 
     if (!conf_.journalPath.empty())
     {
         journal_ = std::make_unique<Journal>(conf_.journalPath, info_);
 
-        // hashers are in a separate executor to make it easier to tell when read
-        // execs finish.
-        for (int i = 0; i < 3; ++i)
-            hashExec_.add(util::Hasher{hashQueue_, journal_}, ThreadExecutor::Options::DoFinalize);
+        for (auto &sender : senders)
+            sender.useHashLog(journal_);
     }
+
+    // clear targets since we've moved them into senders.
+    targetFds_ = std::vector<ScopedFd>{ };
+
+    sendExec_.add(std::move(senders), ThreadExecutor::Options::DoFinalize);
 
     fileIter_ = nextFile(begin(info_), end(info_));
 }
@@ -99,7 +95,6 @@ void TxSession::finish() noexcept
 
     readExec_.cancel();
     sendExec_.cancel();
-    hashExec_.cancel();
 
     if (journal_)
         journal_->sync();
@@ -120,7 +115,6 @@ bool TxSession::runOnce()
     std::erase_if(readResults_, [](const auto &r) { return !r.valid(); });
 
     sendExec_.runOnce();
-    hashExec_.runOnce();
 
     // if there are more files to read, try to submit reads for them.
     // if our reader queue is full, we'll time-out and try again later.
@@ -183,9 +177,6 @@ bool TxSession::startFile(const FileInfo &info)
         const auto rateDeadline = Clock::now() + 1ms;
 
         auto diskRead = Reader(fd, info.id, {0, fileSz}, pool_, &queue_);
-
-        if (!conf_.journalPath.empty())
-            diskRead.setHashQueue(hashQueue_);
 
         if (auto future = readExec_.launch(std::move(diskRead)))
         {

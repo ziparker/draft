@@ -40,6 +40,11 @@ public:
 
     Sender(ScopedFd fd, BufQueue &queue);
 
+    void useHashLog(const std::shared_ptr<Journal> &hashLog)
+    {
+        hashLog_ = hashLog;
+    }
+
     bool runOnce(std::stop_token stopToken);
 
 private:
@@ -47,6 +52,7 @@ private:
 
     BufQueue *queue_{ };
     ScopedFd fd_{ };
+    std::shared_ptr<Journal> hashLog_{ };
 };
 
 }

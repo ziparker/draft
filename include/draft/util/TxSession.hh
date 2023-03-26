@@ -58,12 +58,10 @@ private:
     bool startFile(const FileInfo &info);
 
     WaitQueue<BDesc> queue_;
-    WaitQueue<BDesc> hashQueue_;
     std::shared_ptr<BufferPool> pool_;
     TaskPool readExec_;
     std::vector<std::future<int>> readResults_;
     ThreadExecutor sendExec_;
-    ThreadExecutor hashExec_;
     std::vector<FileInfo> info_;
     std::vector<FileInfo>::const_iterator fileIter_;
     SessionConfig conf_;

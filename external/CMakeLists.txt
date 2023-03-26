@@ -44,6 +44,20 @@ if (DRAFT_ENABLE_CBLOSC)
             -DBUILD_PLUGINS=OFF)
 endif ()
 
+if (DRAFT_ENABLE_CITYHASH)
+    ExternalProject_Add(
+        cityhash
+        GIT_REPOSITORY https://github.com/google/cityhash.git
+        GIT_TAG master
+        CONFIGURE_COMMAND
+            cd <SOURCE_DIR> && ./configure --prefix=${CMAKE_INSTALL_PREFIX}
+        BUILD_COMMAND
+            make all check
+        BUILD_IN_SOURCE ON
+        INSTALL_COMMAND
+            make -C <SOURCE_DIR> prefix=${CMAKE_INSTALL_PREFIX} install)
+endif ()
+
 ExternalProject_Add(
     nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git

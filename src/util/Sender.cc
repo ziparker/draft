@@ -24,8 +24,11 @@
  * SOFTWARE.
  */
 
+#include <draft/util/Journal.hh>
 #include <draft/util/Sender.hh>
 #include <draft/util/Stats.hh>
+
+#include "xxhash.h"
 
 namespace draft::util {
 
@@ -71,6 +74,14 @@ size_t Sender::write(BDesc desc)
         {&header, sizeof(header)},
         {desc.buf->data(), desc.len}
     };
+
+    if (hashLog_)
+    {
+        const auto digest = XXH3_64bits(desc.buf->data(), desc.len);
+
+        hashLog_->writeHash(
+            desc.fileId, desc.offset, desc.len, digest);
+    }
 
     return writeChunk(fd_.get(), iov, 2);
 }
