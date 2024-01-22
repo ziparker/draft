@@ -116,7 +116,7 @@ bool TxSession::runOnce()
 
     sendExec_.runOnce();
 
-    if (sendExec_.finished())
+    if (sendExec_.finished() && sendExec_.haveException())
     {
         spdlog::warn("send context finished early - canceling transfer.");
         finish();

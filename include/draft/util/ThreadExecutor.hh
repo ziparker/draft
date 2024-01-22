@@ -83,7 +83,16 @@ public:
     void cancel() noexcept;
     void waitFinished() noexcept;
 
+    bool haveException() const
+    {
+        return std::any_of(
+            begin(runq_), end(runq_),
+            [](const auto &r) { return r && !!r->exception(); });
+    }
+
 private:
+    using Lock = std::unique_lock<std::mutex>;
+
     class Runnable
     {
     public:
@@ -91,6 +100,7 @@ private:
         virtual bool runOnce() const = 0;
         virtual void cancel() noexcept = 0;
         virtual bool finished() const = 0;
+        virtual std::exception_ptr exception() const = 0;
     };
 
     template <typename T>
@@ -113,6 +123,10 @@ private:
                             spdlog::warn("thd {:#x} exception: {}"
                                 , std::hash<std::thread::id>{ }(id)
                                 , e.what());
+
+                            Lock lk(exMtx_);
+                            exception_ = std::current_exception();
+
                             break;
                         }
                     }
@@ -133,6 +147,12 @@ private:
             thd_.request_stop();
         }
 
+        std::exception_ptr exception() const override
+        {
+            Lock lk(exMtx_);
+            return exception_;
+        }
+
     private:
         bool runOnce() const override
         {
@@ -151,6 +171,8 @@ private:
 
         std::atomic_bool finished_{ };
         unsigned options_{ };
+        mutable std::mutex exMtx_{ };
+        std::exception_ptr exception_{ };
         std::jthread thd_{ };
     };
 
