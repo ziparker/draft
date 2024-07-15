@@ -153,3 +153,7 @@ if (DRAFT_ENABLE_TESTS)
     gtest_discover_tests(gtest_draft)
     enable_testing()
 endif ()
+
+install(TARGETS draft
+    RUNTIME DESTINATION bin
+)
