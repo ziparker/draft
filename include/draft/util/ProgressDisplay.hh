@@ -27,14 +27,15 @@
 #define __DRAFT_UTIL_PROGRESS_DISPLAY_HH__
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <iostream>
 #include <map>
 #include <memory>
 #include <system_error>
 
-#include <math.h>
 #include <sys/ioctl.h>
+#include <termios.h>
 
 #include "Stats.hh"
 #include "Util.hh"
@@ -109,8 +110,9 @@ inline std::ostream &operator<<(std::ostream &stream, const ETA &e)
         stream << h.count() << " h ";
 
     if (h > hours::zero() || m > minutes::zero())
-        stream << m.count() << " m ";
+        return stream << m.count() << " m ";
 
+    // only show seconds if we're less than 1 minute.
     stream << s.count() << " s";
 
     return stream;
@@ -270,10 +272,18 @@ public:
     ~ProgressDisplay() noexcept
     {
         std::cout << term::CursorVisible{ };
+
+        if (initialTermState_)
+            tcsetattr(1, TCSANOW, &initialTermState_.value());
     }
 
     void init()
     {
+        // capture terminal state, if possible, so we can attempt to restore it later.
+        initialTermState_.reset();
+        if (termios state; !tcgetattr(1, &state))
+            initialTermState_ = state;
+
         std::cout << std::unitbuf;
         std::cout << term::CursorInvisible{ };
     }
@@ -379,6 +389,8 @@ private:
     double globalEta_{ };
     double globalBw_{ };
     bool updateWinSz_{ };
+
+    std::optional<termios> initialTermState_{ };
 };
 
 }
