@@ -49,12 +49,11 @@ int Reader::operator()(std::stop_token stopToken)
 
     while (!stopToken.stop_requested())
     {
-        auto buf = std::make_shared<Buffer>(pool_->get(Clock::now() + 20ms));
-        //auto buf = std::make_shared<Buffer>(pool_->get());
+        auto buf = std::make_shared<Buffer>(pool_->get(Clock::now() + 100ms));
 
-        if (!buf)
+        if (!buf || !buf->valid())
         {
-            spdlog::warn("not buf");
+            spdlog::trace("Reader: timed-out waiting for buffer.");
             continue;
         }
 

@@ -289,6 +289,20 @@ TEST(buffer_pool, get)
     EXPECT_EQ(*p1, *p2);
 }
 
+TEST(buffer_pool, get_tmo)
+{
+    using namespace std::chrono_literals;
+
+    // 0-sized pools not allowed, so create & consume initial buffer.
+    auto pool = BufferPool::make(64, 1);
+
+    auto buf = pool->get();
+    auto buf2 = pool->get(std::chrono::steady_clock::now() + 1ns);
+    EXPECT_TRUE(buf);
+    EXPECT_FALSE(buf2);
+    EXPECT_EQ(nullptr, buf2.data());
+}
+
 TEST(buffer_pool, buf_move_ctor)
 {
     auto pool = BufferPool::make(64, 10);

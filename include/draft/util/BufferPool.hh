@@ -95,7 +95,8 @@ public:
 
         size_t freeIndex() const noexcept { return freeIdx_; }
 
-        explicit operator bool() const noexcept { return data_; }
+        explicit operator bool() const noexcept { return valid(); }
+        bool valid() const noexcept { return data_; }
 
     private:
         friend class BufferPool;
