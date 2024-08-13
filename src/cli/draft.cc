@@ -33,8 +33,6 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <signal.h>
-
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/cfg/env.h>

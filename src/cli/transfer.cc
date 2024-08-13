@@ -56,13 +56,21 @@ void handleSigint(int)
     done_ = 1;
 }
 
+void handleSigpipe(int)
+{
+    fprintf(stderr, "draft send: sigpipe\n");
+    done_ = 1;
+}
+
 void installSigHandler()
 {
     struct sigaction action{ };
+
     action.sa_handler = handleSigint;
     sigaction(SIGINT, &action, nullptr);
 
-    // TODO: handle sigpipe for when rx is killed
+    action.sa_handler = handleSigpipe;
+    sigaction(SIGPIPE, &action, nullptr);
 }
 
 struct Options
