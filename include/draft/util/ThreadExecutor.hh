@@ -78,10 +78,10 @@ public:
 
     bool runOnce();
 
-    bool empty() const noexcept;
     bool finished() const;
     void cancel() noexcept;
     void waitFinished() noexcept;
+    void clearFinished();
 
     bool haveException() const
     {

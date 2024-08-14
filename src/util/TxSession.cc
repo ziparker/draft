@@ -123,6 +123,8 @@ bool TxSession::runOnce()
         return false;
     }
 
+    sendExec_.clearFinished();
+
     // if there are more files to read, try to submit reads for them.
     // if our reader queue is full, we'll time-out and try again later.
     while (fileIter_ != end(info_) && startFile(*fileIter_))
