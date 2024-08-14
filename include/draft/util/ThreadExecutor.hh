@@ -134,7 +134,21 @@ private:
                     if (token.stop_requested() && (options_ & Options::DoFinalize))
                     {
                         spdlog::debug("thd runnable finalizing.");
-                        t_.runOnce(token);
+
+                        try
+                        {
+                            t_.runOnce(token);
+                        } catch (const std::exception &e) {
+                            const auto id = std::this_thread::get_id();
+                            spdlog::warn("thd {:#x} finalizing exception: {}"
+                                , std::hash<std::thread::id>{ }(id)
+                                , e.what());
+
+                            Lock lk(exMtx_);
+
+                            if (!exception_)
+                                exception_ = std::current_exception();
+                        }
                     }
 
                     finished_ = true;
