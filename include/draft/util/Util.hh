@@ -130,7 +130,9 @@ struct SessionConfig
     std::vector<NetworkTarget> targets;
     NetworkTarget service;
     std::string pathRoot{"."};
+    std::string journalPath{ };
     bool useDirectIO{true};
+    bool noWrite{false};
 };
 
 using BufQueue = WaitQueue<BDesc>;
@@ -139,7 +141,7 @@ using FdMap = std::unordered_map<unsigned, int>;
 
 size_t readChunk(int fd, void *data, size_t dlen, size_t fileOffset);
 size_t writeChunk(int fd, iovec *iov, size_t iovCount);
-size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset);
+size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset, unsigned flags = 0);
 
 std::vector<FileInfo> getFileInfo(const std::string &path);
 
@@ -151,6 +153,8 @@ void createTargetFiles(const std::string &root, const std::vector<FileInfo> &inf
 std::string dirname(std::string path);
 
 std::filesystem::path rootedPath(std::filesystem::path root, std::string path, std::string suffix);
+
+std::pair<ScopedFd, std::string> makeTempFile(std::string prefix, std::string suffix, int flags = 0);
 
 namespace net {
 

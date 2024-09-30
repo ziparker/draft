@@ -29,6 +29,7 @@
 
 #include <stop_token>
 
+#include "Journal.hh"
 #include "Util.hh"
 
 namespace draft::util {
@@ -38,7 +39,12 @@ class Receiver
 public:
     using Buffer = BufferPool::Buffer;
 
-    Receiver(ScopedFd fd, BufQueue &queue);
+    Receiver(ScopedFd fd, BufQueue &queue, BufQueue *hashQueue = nullptr);
+
+    void useHashLog(const std::shared_ptr<Journal> &hashLog)
+    {
+        hashLog_ = hashLog;
+    }
 
     bool runOnce(std::stop_token stopToken);
 
@@ -51,6 +57,8 @@ private:
 
     BufferPoolPtr pool_{ };
     BufQueue *queue_{ };
+    BufQueue *hashQueue_{ };
+    std::shared_ptr<Journal> hashLog_{ };
     wire::ChunkHeader header_{ };
     Buffer buf_{ };
     size_t offset_{ };

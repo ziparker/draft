@@ -62,7 +62,7 @@ private:
 class BufferPool: public std::enable_shared_from_this<BufferPool>
 {
 public:
-    using Lock = std::unique_lock<std::mutex>;
+    using Lock = std::unique_lock<std::timed_mutex>;
 
     struct Buffer
     {
@@ -95,7 +95,8 @@ public:
 
         size_t freeIndex() const noexcept { return freeIdx_; }
 
-        explicit operator bool() const noexcept { return data_; }
+        explicit operator bool() const noexcept { return valid(); }
+        bool valid() const noexcept { return data_; }
 
     private:
         friend class BufferPool;
@@ -113,6 +114,7 @@ public:
     ~BufferPool() noexcept;
 
     Buffer get();
+    Buffer get(std::chrono::steady_clock::time_point deadline);
 
 private:
     BufferPool() = default;
@@ -124,8 +126,8 @@ private:
 
     void put(size_t index);
 
-    std::mutex mtx_{ };
-    std::condition_variable cond_{ };
+    std::timed_mutex mtx_{ };
+    std::condition_variable_any cond_{ };
     FreeList freeList_{ };
     ScopedMMap mmap_{ };
     size_t chunkSize_{ };

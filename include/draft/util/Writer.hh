@@ -40,6 +40,11 @@ public:
 
     Writer(FdMap fdMap, BufQueue &queue);
 
+    void setWritesEnabled(bool on = true)
+    {
+        writesEnabled_ = on;
+    }
+
     bool runOnce(std::stop_token stopToken);
 
 private:
@@ -49,6 +54,7 @@ private:
 
     BufQueue *queue_{ };
     FdMap fdMap_{ };
+    bool writesEnabled_{true};
 };
 
 }

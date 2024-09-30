@@ -1,9 +1,9 @@
 /**
- * @file Sender.hh
+ * @file DraftUstat.hh
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2022 Zachary Parker
+ * Copyright (c) 2023 Zachary Parker
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -24,37 +24,53 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_UTIL_SENDER_HH_
-#define __DRAFT_UTIL_SENDER_HH_
+#ifndef __DRAFT_USTAT_HH__
+#define __DRAFT_USTAT_HH__
 
-#include <stop_token>
+#ifdef DRAFT_HAVE_USTAT
+# include <ustat/ustat.hh>
+# include <ustat/util/scoped_timer.hh>
+#endif
+#include <spdlog/spdlog.h>
 
-#include "Journal.hh"
-#include "Util.hh"
+namespace draft::metric {
 
-namespace draft::util {
+#ifdef DRAFT_HAVE_USTAT
+using ::ustat::metric;
+using ::ustat::counter_metric;
 
-class Sender
+inline void configure()
 {
-public:
-    using Buffer = BufferPool::Buffer;
+    using namespace ustat;
+    ustat::configuration()
+        .set("pj_ip", ustat::get_env("PJ_IP").value_or("127.0.0.1"))
+        .set("pj_port", ustat::get_env<int>("PJ_PORT").value_or(9870));
+}
 
-    Sender(ScopedFd fd, BufQueue &queue);
+using ustat::metric;
+using ustat::counter_metric;
+using ustat::util::scoped_timer_metric;
+#else
+inline void configure(...) { spdlog::warn("nope"); }
 
-    void useHashLog(const std::shared_ptr<Journal> &hashLog)
-    {
-        hashLog_ = hashLog;
-    }
-
-    bool runOnce(std::stop_token stopToken);
-
-private:
-    size_t write(BDesc desc);
-
-    BufQueue *queue_{ };
-    ScopedFd fd_{ };
-    std::shared_ptr<Journal> hashLog_{ };
+struct metric
+{
+    int publish(...) { return 0; }
 };
+
+struct counter_metric
+{
+    int increment(...) { return 0; }
+    int decrement(...) { return 0; }
+};
+
+struct scoped_timer
+{
+    double elapsedFloatTime() const noexcept { return 0.0; };
+};
+
+inline scoped_timer scoped_counter_metric(...) { return { }; }
+#endif
 
 }
 

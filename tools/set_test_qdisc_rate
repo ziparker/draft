@@ -1,0 +1,3 @@
+#!/bin/bash
+
+for i in {0..2}; do sudo tc qdisc change dev draft-tx$i handle 1: netem rate "$1"; done

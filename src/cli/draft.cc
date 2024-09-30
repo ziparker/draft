@@ -33,13 +33,13 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include <signal.h>
-
 #include <nlohmann/json.hpp>
 #include <spdlog/spdlog.h>
 #include <spdlog/cfg/env.h>
 
+#include <draft/util/DraftUstat.hh>
 #include <draft/util/UtilJson.hh>
+#include <draft/util/Version.hh>
 #include "Cmd.hh"
 
 namespace {
@@ -50,6 +50,7 @@ int dispatchSubcommand(int argc, char **argv)
     using namespace draft;
 
     const auto subProgs = std::map<std::string, Cmd>{
+        {"journal", cmd::journal},
         {"send", cmd::send},
         {"recv", cmd::recv},
         #ifdef DRAFT_HAVE_COMPRESS
@@ -93,7 +94,9 @@ int main(int argc, char **argv)
 {
     spdlog::cfg::load_env_levels();
 
-    spdlog::info("draft build {} {}", __DATE__, __TIME__);
+    spdlog::info("draft build {}", draft::util::versionString());
+
+    draft::metric::configure();
 
     try {
         dispatchSubcommand(argc, argv);

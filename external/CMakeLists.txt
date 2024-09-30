@@ -44,6 +44,20 @@ if (DRAFT_ENABLE_CBLOSC)
             -DBUILD_PLUGINS=OFF)
 endif ()
 
+if (DRAFT_ENABLE_CITYHASH)
+    ExternalProject_Add(
+        cityhash
+        GIT_REPOSITORY https://github.com/google/cityhash.git
+        GIT_TAG master
+        CONFIGURE_COMMAND
+            cd <SOURCE_DIR> && ./configure --prefix=${CMAKE_INSTALL_PREFIX}
+        BUILD_COMMAND
+            make all check
+        BUILD_IN_SOURCE ON
+        INSTALL_COMMAND
+            make -C <SOURCE_DIR> prefix=${CMAKE_INSTALL_PREFIX} install)
+endif ()
+
 ExternalProject_Add(
     nlohmann_json
     GIT_REPOSITORY https://github.com/nlohmann/json.git
@@ -72,3 +86,25 @@ ExternalProject_Add(
         -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
         -DSPDLOG_BUILD_SHARED=${BUILD_SHARED_LIBS}
         -DSPDLOG_INSTALL=ON)
+
+if (DRAFT_ENABLE_USTAT)
+    ExternalProject_Add(
+        ustat
+        GIT_REPOSITORY git@github.com:ziparker/ustat.git
+        GIT_TAG master
+        CMAKE_ARGS
+            -DBUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
+            -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX})
+    add_dependencies(ustat spdlog)
+endif ()
+
+ExternalProject_Add(
+    xxhash
+    GIT_REPOSITORY https://github.com/Cyan4973/xxHash.git
+    GIT_TAG v0.8.1
+    CONFIGURE_COMMAND
+        ""
+    BUILD_COMMAND
+        make -C <SOURCE_DIR>
+    INSTALL_COMMAND
+        make -C <SOURCE_DIR> prefix=${CMAKE_INSTALL_PREFIX} install)

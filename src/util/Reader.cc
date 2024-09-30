@@ -24,6 +24,8 @@
  * SOFTWARE.
  */
 
+#include <chrono>
+
 #include <spdlog/spdlog.h>
 
 #include <draft/util/Reader.hh>
@@ -31,11 +33,11 @@
 
 namespace draft::util {
 
-Reader::Reader(const std::shared_ptr<ScopedFd> &fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue &queue):
+Reader::Reader(const std::shared_ptr<ScopedFd> &fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue *queue):
     fd_{fd},
     segment_{segment},
     pool_{pool},
-    queue_{&queue},
+    queue_{queue},
     fileId_{fileId}
 {
 }
@@ -43,10 +45,17 @@ Reader::Reader(const std::shared_ptr<ScopedFd> &fd, unsigned fileId, Segment seg
 int Reader::operator()(std::stop_token stopToken)
 {
     using namespace std::chrono_literals;
+    using Clock = std::chrono::steady_clock;
 
     while (!stopToken.stop_requested())
     {
-        auto buf = std::make_shared<Buffer>(pool_->get());
+        auto buf = std::make_shared<Buffer>(pool_->get(Clock::now() + 100ms));
+
+        if (!buf || !buf->valid())
+        {
+            spdlog::trace("Reader: timed-out waiting for buffer.");
+            continue;
+        }
 
         auto len = read(*buf);
 
@@ -62,9 +71,16 @@ int Reader::operator()(std::stop_token stopToken)
         //
         // if the queue is pushing back, we don't want to stack-up more
         // work.
-        while (!stopToken.stop_requested() &&
+        while (queue_ &&
+            !stopToken.stop_requested() &&
             !queue_->put({buf, fileId_, segment_.offset, len}, 100ms))
         {
+        }
+
+        if (hashQueue_ && !hashQueue_->put({buf, fileId_, segment_.offset, len}, 1ms))
+        {
+            spdlog::warn("reader: unable to enqueue file {} offset {} len {} for hashing (queue full)."
+                , fileId_, segment_.offset, len);
         }
 
         ++stats().queuedBlockCount;

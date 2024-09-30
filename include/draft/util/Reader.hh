@@ -39,9 +39,14 @@ class Reader
 public:
     using Buffer = BufferPool::Buffer;
 
-    Reader(const std::shared_ptr<ScopedFd> &fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue &queue);
+    Reader(const std::shared_ptr<ScopedFd> &fd, unsigned fileId, Segment segment, const BufferPoolPtr &pool, BufQueue *queue);
 
     int operator()(std::stop_token stopToken);
+
+    void setHashQueue(BufQueue &q)
+    {
+        hashQueue_ = &q;
+    }
 
 private:
     size_t read(Buffer &buf);
@@ -50,6 +55,7 @@ private:
     Segment segment_{ };
     BufferPoolPtr pool_{ };
     BufQueue *queue_{ };
+    BufQueue *hashQueue_{ };
     unsigned fileId_{ };
 };
 

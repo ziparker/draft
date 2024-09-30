@@ -48,7 +48,9 @@ bool Writer::runOnce(std::stop_token stopToken)
 
         ++stats().dequeuedBlockCount;
 
-        const auto len = write(std::move(*desc));
+        const auto len = writesEnabled_ ?
+            write(std::move(*desc)) :
+            desc->len;
 
         stats().diskByteCount += len;
 

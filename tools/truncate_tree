@@ -1,0 +1,35 @@
+#!/usr/bin/env python3
+
+import fire
+import os
+
+def truncate_file(path, size):
+    try:
+        os.truncate(path, size)
+        print(f'resized {path} -> {size}')
+    except Exception as e:
+        print(f' >> unable to resize {path} -> {size}: {e}')
+
+def truncate_item(item):
+    itype = item['type']
+
+    if itype == 'file':
+        truncate_file(item['name'], item['size'])
+    elif itype == 'directory':
+        for nest_item in item['contents']:
+            truncate_item(nest_item)
+
+def truncate(path):
+    import json
+
+    with open(path, 'r') as f:
+        items = json.load(f)
+
+    for item in items:
+        truncate_item(item)
+
+def generate(dirname='.'):
+    os.system(f'tree -sfJ {dirname}')
+
+if __name__ == '__main__':
+    fire.Fire({'generate': generate, 'truncate': truncate})

@@ -30,22 +30,12 @@ namespace draft::util {
 
 bool ThreadExecutor::runOnce()
 {
-    std::erase_if(runq_,
-        [](const auto &r) {
-            auto rm = !r->runOnce();
+    auto runAgain = false;
 
-            if (rm)
-                spdlog::info("removing thd exec entry.");
+    for (const auto &r : runq_)
+        runAgain |= r && r->runOnce();
 
-            return rm;
-        });
-
-    return !empty();
-}
-
-bool ThreadExecutor::empty() const noexcept
-{
-    return runq_.empty();
+    return runAgain;
 }
 
 bool ThreadExecutor::finished() const
@@ -68,6 +58,14 @@ void ThreadExecutor::waitFinished() noexcept
         runq_.clear();
     } catch (...) {
     }
+}
+
+void ThreadExecutor::clearFinished()
+{
+    std::erase_if(runq_,
+        [](const auto &r) {
+            return r->finished();
+        });
 }
 
 }

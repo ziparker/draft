@@ -1,7 +1,7 @@
 # DRAFT
 
-draft is a file transfer tool that was designed to fill a niche need for fast
-transfers of multi-terabyte files across multiple Ethernet links.
+draft is a file transfer tool designed to fill a niche need for fast transfers
+of multi-terabyte files across multiple Ethernet links.
 
 draft is currently in very early stages of development.
 
@@ -28,7 +28,7 @@ uniquely-assigned IP addresses on separate subnets:
 
 Source:
 
-|interface  | IP/netmask        | 
+|interface  | IP/netmask        |
 |-----------|-------------------|
 | enp6s0    | 192.168.1.200/24  |
 | enp7s0    | 192.168.2.200/24  |
@@ -36,7 +36,7 @@ Source:
 
 Target
 
-|interface  | IP/netmask        | 
+|interface  | IP/netmask        |
 |-----------|-------------------|
 | enp74s0   | 192.168.1.201/24  |
 | enp75s0   | 192.168.2.201/24  |
@@ -130,7 +130,7 @@ bandwidth over each link:
 
 The draft-rx namespace will contain the following interfaces:
 
-| interface | IP/netmask        | 
+| interface | IP/netmask        |
 |-----------|-------------------|
 | draft-rx0 | 10.76.2.101/24    |
 | draft-rx1 | 10.76.3.101/24    |
@@ -138,7 +138,7 @@ The draft-rx namespace will contain the following interfaces:
 
 The draft-tx namespace will contain the following interfaces:
 
-| interface | IP/netmask        | 
+| interface | IP/netmask        |
 |-----------|-------------------|
 | draft-tx0 | 10.76.2.100/24    |
 | draft-tx1 | 10.76.3.100/24    |

@@ -1,5 +1,5 @@
 /**
- * @file Sender.hh
+ * @file JournalOperations.hh
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
@@ -24,37 +24,23 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_UTIL_SENDER_HH_
-#define __DRAFT_UTIL_SENDER_HH_
+#ifndef __DRAFT_UTIL_JOURNAL_OPERATIONS_HH__
+#define __DRAFT_UTIL_JOURNAL_OPERATIONS_HH__
 
-#include <stop_token>
+#include <vector>
 
 #include "Journal.hh"
-#include "Util.hh"
+#include "VerifySession.hh"
 
 namespace draft::util {
 
-class Sender
-{
-public:
-    using Buffer = BufferPool::Buffer;
+JournalFileDiff diffJournals(const draft::util::Journal &journalA, const draft::util::Journal &journalB);
 
-    Sender(ScopedFd fd, BufQueue &queue);
+std::optional<JournalFileDiff> verifyJournal(
+    const Journal &journal, VerifySession::Config config);
 
-    void useHashLog(const std::shared_ptr<Journal> &hashLog)
-    {
-        hashLog_ = hashLog;
-    }
-
-    bool runOnce(std::stop_token stopToken);
-
-private:
-    size_t write(BDesc desc);
-
-    BufQueue *queue_{ };
-    ScopedFd fd_{ };
-    std::shared_ptr<Journal> hashLog_{ };
-};
+std::optional<Journal> createJournal(
+    std::vector<FileInfo> info, VerifySession::Config config, const std::string &path);
 
 }
 

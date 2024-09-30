@@ -71,8 +71,12 @@ if (DRAFT_ENABLE_SANITIZERS)
     set(DRAFT_SANITIZER_LIBS asan ubsan)
 endif ()
 
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+
 find_package(nlohmann_json REQUIRED)
 find_package(spdlog REQUIRED)
+find_package(ustat QUIET)
+find_package(xxhash REQUIRED)
 
 find_library(blosc2_LIBRARY blosc2)
 find_path(blosc2_INCLUDE_DIRS blosc2.h)
@@ -86,22 +90,29 @@ find_path(nvcomp_INCLUDE_DIRS nvcomp.hpp)
 list(APPEND DRAFTUTIL_SRC
     src/util/Buffer.cc
     src/util/BufferPool.cc
+    src/util/Hasher.cc
     src/util/InfoReceiver.cc
+    src/util/Journal.cc
+    src/util/JournalOperations.cc
     src/util/PollSet.cc
     src/util/Reader.cc
     src/util/Receiver.cc
     src/util/RxSession.cc
     src/util/ScopedMMap.cc
+    src/util/ScopedTempFile.cc
     src/util/Sender.cc
     src/util/TaskPool.cc
     src/util/ThreadExecutor.cc
     src/util/TxSession.cc
     src/util/Util.cc
     src/util/UtilJson.cc
+    src/util/VerifySession.cc
+    src/util/Version.cc
     src/util/Writer.cc)
 
 list(APPEND DRAFTCLI_SRC
     src/cli/draft.cc
+    src/cli/journal.cc
     src/cli/transfer.cc)
 
 if (blosc2_LIBRARY AND blosc2_INCLUDE_DIRS)
@@ -118,15 +129,14 @@ add_library(draftutil ${DRAFTUTIL_SRC})
 target_include_directories(draftutil PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
+target_include_directories(draftutil PRIVATE
+    ${xxhash_INCLUDE_DIRS})
 target_link_libraries(draftutil
-    PRIVATE spdlog::spdlog
+    PRIVATE spdlog::spdlog ${xxhash_LIBRARIES}
     PUBLIC nlohmann_json::nlohmann_json)
 
 add_executable(draft ${DRAFTCLI_SRC})
 target_link_libraries(draft PRIVATE draftutil spdlog::spdlog)
-
-add_executable(ui src/ui.cc)
-target_link_libraries(ui PRIVATE draftutil spdlog::spdlog ncurses)
 
 if (blosc2_LIBRARY)
     target_compile_definitions(draftutil PUBLIC DRAFT_HAVE_COMPRESS=1)
@@ -143,12 +153,26 @@ if (nvcomp_LIBRARY)
     target_include_directories(draft SYSTEM PRIVATE ${cufile_INCLUDE_DIRS})
 endif ()
 
+if (ustat_FOUND)
+    message(STATUS "draft: enabling ustat.")
+    target_compile_definitions(draftutil PRIVATE DRAFT_HAVE_USTAT=1)
+    target_compile_definitions(draft PRIVATE DRAFT_HAVE_USTAT=1)
+    target_link_libraries(draftutil PRIVATE ustat::ustat)
+    target_link_libraries(draft PRIVATE ustat::ustat)
+endif ()
+
 if (DRAFT_ENABLE_TESTS)
     find_package(GTest REQUIRED)
     include(GoogleTest)
 
     add_executable(gtest_draft test/gtest_draft.cc)
     target_link_libraries(gtest_draft PRIVATE GTest::GTest GTest::Main draftutil)
+
+    add_executable(gtest_journal test/gtest_journal.cc)
+    target_link_libraries(gtest_journal PRIVATE GTest::GTest GTest::Main draftutil)
+
+    add_executable(ui test/ui.cc)
+    target_link_libraries(ui PRIVATE draftutil spdlog::spdlog)
 
     gtest_discover_tests(gtest_draft)
     enable_testing()

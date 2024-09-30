@@ -1,9 +1,9 @@
 /**
- * @file Sender.hh
+ * @file ScopedTempFile.cc
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2022 Zachary Parker
+ * Copyright (c) 2023 Zachary Parker
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -24,38 +24,50 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_UTIL_SENDER_HH_
-#define __DRAFT_UTIL_SENDER_HH_
-
-#include <stop_token>
-
-#include "Journal.hh"
-#include "Util.hh"
+#include <draft/util/ScopedTempFile.hh>
+#include <draft/util/Util.hh>
 
 namespace draft::util {
 
-class Sender
+ScopedTempFile::ScopedTempFile(std::string prefix, std::string suffix, int flags)
 {
-public:
-    using Buffer = BufferPool::Buffer;
+    auto [fd, path] = makeTempFile(std::move(prefix), std::move(suffix), flags);
 
-    Sender(ScopedFd fd, BufQueue &queue);
-
-    void useHashLog(const std::shared_ptr<Journal> &hashLog)
-    {
-        hashLog_ = hashLog;
-    }
-
-    bool runOnce(std::stop_token stopToken);
-
-private:
-    size_t write(BDesc desc);
-
-    BufQueue *queue_{ };
-    ScopedFd fd_{ };
-    std::shared_ptr<Journal> hashLog_{ };
-};
-
+    fd_ = std::move(fd);
+    path_ = std::move(path);
 }
 
-#endif
+ScopedTempFile::~ScopedTempFile() noexcept
+{
+    close();
+}
+
+int ScopedTempFile::fd() const noexcept
+{
+    return fd_.get();
+}
+
+ScopedFd ScopedTempFile::releaseFd() noexcept
+{
+    return ScopedFd{fd_.release()};
+}
+
+int ScopedTempFile::close() noexcept
+{
+    const auto stat = unlink();
+
+    fd_.close();
+    path_.clear();
+
+    return stat;
+}
+
+int ScopedTempFile::unlink() noexcept
+{
+    if (::unlink(path_.c_str()))
+        return -errno;
+
+    return 0;
+}
+
+}

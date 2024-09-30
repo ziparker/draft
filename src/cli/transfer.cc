@@ -56,31 +56,52 @@ void handleSigint(int)
     done_ = 1;
 }
 
+void handleSigpipe(int)
+{
+    fprintf(stderr, "draft send: sigpipe\n");
+    done_ = 1;
+}
+
 void installSigHandler()
 {
     struct sigaction action{ };
+
     action.sa_handler = handleSigint;
     sigaction(SIGINT, &action, nullptr);
 
-    // TODO: handle sigpipe for when rx is killed
+    action.sa_handler = handleSigpipe;
+    sigaction(SIGPIPE, &action, nullptr);
 }
 
 struct Options
 {
     draft::util::SessionConfig session;
     bool showProgress{ };
+    bool doJournal{ };
 };
 
-Options parseOptions(int argc, char **argv)
+enum class TransferMode { Send, Recv };
+
+Options parseOptions(int argc, char **argv, TransferMode mode)
 {
-    static constexpr const char *shortOpts = "hp:Ps:t:";
+    namespace fs = std::filesystem;
+
+    enum LongOnlyOpts
+    {
+        OptJournalPath = 128
+    };
+
+    static constexpr const char *shortOpts = "hjJ:nNp:Ps:t:";
     static constexpr struct option longOpts[] = {
         {"help", no_argument, nullptr, 'h'},
+        {"journal", no_argument, nullptr, 'j'},
         {"nodirect", no_argument, nullptr, 'n'},
+        {"nowrites", no_argument, nullptr, 'N'},
         {"path", required_argument, nullptr, 'p'},
         {"progress", no_argument, nullptr, 'P'},
         {"service", required_argument, nullptr, 's'},
         {"target", required_argument, nullptr, 't'},
+        {"journal-path", required_argument, nullptr, 'J'},
         {nullptr, 0, nullptr, 0}
     };
 
@@ -88,8 +109,38 @@ Options parseOptions(int argc, char **argv)
     auto subArgv = argv + 1;
 
     const auto usage = [argv] {
-            spdlog::info(
-                "usage: {} (send|recv) [-h][-p <path>][-P][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
+            std::cout << fmt::format(
+                "usage: {} (send|recv) [-h][-j][-J [<path>][-n][N][-p <path>][-P][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
+                , ::basename(argv[0]));
+        };
+
+    const auto help = [argv] {
+            std::cout << fmt::format(
+                "help: {} (send|recv) OPTIONS -s <ip>:<port> -t <ip>:<port> [-t <ip>:<port>]...]\n"
+                "  OPTIONS:\n"
+                "   -h | --help\n"
+                "       show this help message.\n"
+                "   -j | --journal\n"
+                "       enable hash journaling, and optionally specify the journal file path.\n"
+                "       the default path is <transfer path root>/(tx,rx)_journal.draft for directories.\n"
+                "       and is <transfer path root>_(tx,rx)_journal.draft for single file transfers.\n"
+                "   -J | --journal-path <path>\n"
+                "       enable journal, same as as '-j', but with the specified path.\n"
+                "   -n | --nodirect\n"
+                "       disable the use of direct-io.\n"
+                "       this enables usage on filesystems that don't support it.\n"
+                "   -N | --nowrites\n"
+                "       disable writes to disk (receive side).\n"
+                "   -p | --path <transfer path root>\n"
+                "       (send only) - path to directory to send.\n"
+                "       the target tree is recreated, in full, on the receive side.\n"
+                "   -P | --progress\n"
+                "       enable progress reporting (disables info message output)\n"
+                "   -s | --service <ip>:<port>\n"
+                "       specify the IP & port to bind to for control messages.\n"
+                "   -t | --target <ip>:<port>\n"
+                "       specify a IP & port to bind to for data transfer.\n"
+                "       may specify multiple times to parallelize traffic over multiple routes.\n"
                 , ::basename(argv[0]));
         };
 
@@ -100,17 +151,27 @@ Options parseOptions(int argc, char **argv)
         switch (c)
         {
             case 'h':
-                usage();
+                help();
                 std::exit(0);
+            case 'j':
+                opts.doJournal = true;
+                break;
+            case 'J':
+                opts.doJournal = true;
+                opts.session.journalPath = optarg;
+                break;
             case 'n':
                 opts.session.useDirectIO = false;
+                break;
+            case 'N':
+                opts.session.noWrite = true;
                 break;
             case 'p':
                 opts.session.pathRoot = optarg;
                 break;
             case 'P':
                 opts.showProgress = true;
-                spdlog::set_level(spdlog::level::off);
+                spdlog::set_level(spdlog::level::warn);
                 break;
             case 's':
                 opts.session.service = draft::util::parseTarget(optarg);
@@ -119,6 +180,7 @@ Options parseOptions(int argc, char **argv)
                 opts.session.targets.push_back(draft::util::parseTarget(optarg));
                 break;
             case '?':
+                usage();
                 std::exit(1);
             default:
                 break;
@@ -141,6 +203,22 @@ Options parseOptions(int argc, char **argv)
     {
         spdlog::error("missing required argument: --target");
         std::exit(1);
+    }
+
+    if (opts.doJournal && opts.session.journalPath.empty())
+    {
+        if (fs::is_directory(opts.session.pathRoot))
+        {
+            opts.session.journalPath = fs::path{opts.session.pathRoot} /
+                (mode == TransferMode::Send ? "tx_journal.draft" : "rx_journal.draft");
+        }
+        else
+        {
+            opts.session.journalPath = fs::path{opts.session.pathRoot +
+                (mode == TransferMode::Send ? "_tx_journal.draft" : "_rx_journal.draft")};
+        }
+
+        spdlog::info("using default journal path: {}", opts.session.journalPath);
     }
 
     spdlog::info("service: {}:{}", opts.session.service.ip, opts.session.service.port);
@@ -226,7 +304,7 @@ int recv(int argc, char **argv)
 
     spdlog::info("recv");
 
-    const auto opts = parseOptions(argc, argv);
+    const auto opts = parseOptions(argc, argv, TransferMode::Recv);
     const auto &service = opts.session.service;
 
     installSigHandler();
@@ -288,7 +366,7 @@ int send(int argc, char **argv)
 
     static constexpr auto GlobalDisplayLabel = "tx progress";
 
-    const auto opts = parseOptions(argc, argv);
+    const auto opts = parseOptions(argc, argv, TransferMode::Send);
     const auto &path = opts.session.pathRoot;
 
     installSigHandler();

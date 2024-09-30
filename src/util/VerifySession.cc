@@ -1,9 +1,9 @@
 /**
- * @file TxSession.cc
+ * @file VerifySession.cc
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2022 Zachary Parker
+ * Copyright (c) 2023 Zachary Parker
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -29,78 +29,101 @@
 
 #include <sys/stat.h>
 
-#include <draft/util/Journal.hh>
+#include <draft/util/Hasher.hh>
+#include <draft/util/JournalOperations.hh>
 #include <draft/util/Reader.hh>
 #include <draft/util/ScopedTimer.hh>
-#include <draft/util/Sender.hh>
 #include <draft/util/ThreadExecutor.hh>
-#include <draft/util/TxSession.hh>
+#include <draft/util/VerifySession.hh>
 
 namespace draft::util {
 
-TxSession::TxSession(SessionConfig conf):
+VerifySession::VerifySession(Config conf):
     conf_(std::move(conf))
 {
     readExec_.resize(1);
     readExec_.setQueueSizeLimit(10);
 
-    queue_.setSizeLimit(100);
+    hashQueue_.setSizeLimit(100);
 
     pool_ = BufferPool::make(BufSize, 35);
-    targetFds_ = connectNetworkTargets(conf_.targets);
-
-    spdlog::info("connected tx targets.");
 }
 
-TxSession::~TxSession() noexcept
+VerifySession::~VerifySession() noexcept
 {
     finish();
 }
 
-void TxSession::start(const std::string &path)
+void VerifySession::start(const Journal &inputJournal)
 {
-    namespace fs = std::filesystem;
+    inputJournalPath_ = inputJournal.path();
 
-    // TODO: should we also own the rx service connection, and send xfer
-    // request here?
+    journalFile_ = util::ScopedTempFile("/tmp/journal_", ".draft", O_RDWR | O_CLOEXEC);
+    fchmod(journalFile_.fd(), 0644);
 
-    const auto view = std::views::transform(
-        targetFds_, [this](auto &&fd){ return Sender{std::move(fd), queue_}; });
+    spdlog::debug("verify session: create temporary journal file, '{}'"
+        , journalFile_.path());
 
-    auto senders = std::vector<Sender>{
-        std::make_move_iterator(begin(view)),
-        std::make_move_iterator(end(view))};
+    info_ = inputJournal.fileInfo();
+    journal_ = Journal{journalFile_.fd(), journalFile_.path(), info_};
 
-    info_ = getFileInfo(path);
-
-    if (!conf_.journalPath.empty())
+    // hashers are in a separate executor to make it easier to tell when read
+    // execs finish.
+    for (int i = 0; i < 2; ++i)
     {
-        journal_ = std::make_unique<Journal>(conf_.journalPath, info_);
-
-        for (auto &sender : senders)
-            sender.useHashLog(journal_);
+        hashExec_.add(
+            util::Hasher{
+                hashQueue_,
+                [this](const auto &digest) { handleHash(digest); }},
+            ThreadExecutor::Options::DoFinalize);
     }
 
-    // clear targets since we've moved them into senders.
-    targetFds_ = std::vector<ScopedFd>{ };
+    fileIter_ = nextFile(begin(info_), end(info_));
 
-    sendExec_.add(std::move(senders), ThreadExecutor::Options::DoFinalize);
+    spdlog::debug("verify session: {} files", info_.size());
+}
+
+void VerifySession::start(std::vector<FileInfo> fileInfo)
+{
+    journalFile_ = util::ScopedTempFile("/tmp/journal_", ".draft", O_RDWR | O_CLOEXEC);
+    fchmod(journalFile_.fd(), 0644);
+
+    spdlog::debug("verify session: create temporary journal file, '{}'"
+        , journalFile_.path());
+
+    info_ = std::move(fileInfo);
+    journal_ = Journal{journalFile_.fd(), journalFile_.path(), info_};
+
+    // hashers are in a separate executor to make it easier to tell when read
+    // execs finish.
+    for (int i = 0; i < 2; ++i)
+    {
+        hashExec_.add(
+            util::Hasher{
+                hashQueue_,
+                [this](const auto &digest) { handleHash(digest); }},
+            ThreadExecutor::Options::DoFinalize);
+    }
 
     fileIter_ = nextFile(begin(info_), end(info_));
+
+    spdlog::debug("journal generation session: {} files", info_.size());
 }
 
-void TxSession::finish() noexcept
+void VerifySession::finish() noexcept
 {
-    spdlog::debug("txsession: cancelling read & send tasks.");
+    spdlog::debug("verify session: cancelling read & hashing tasks.");
 
     readExec_.cancel();
-    sendExec_.cancel();
-
-    if (journal_)
-        journal_->sync();
+    hashExec_.cancel();
 }
 
-bool TxSession::runOnce()
+bool VerifySession::finished() const
+{
+    return hashExec_.finished();
+}
+
+bool VerifySession::runOnce()
 {
     using namespace std::chrono_literals;
 
@@ -114,16 +137,7 @@ bool TxSession::runOnce()
     // remove completed readers from the results list.
     std::erase_if(readResults_, [](const auto &r) { return !r.valid(); });
 
-    sendExec_.runOnce();
-
-    if (sendExec_.finished() && sendExec_.haveException())
-    {
-        spdlog::warn("send context finished early - canceling transfer.");
-        finish();
-        return false;
-    }
-
-    sendExec_.clearFinished();
+    hashExec_.runOnce();
 
     // if there are more files to read, try to submit reads for them.
     // if our reader queue is full, we'll time-out and try again later.
@@ -136,22 +150,36 @@ bool TxSession::runOnce()
 
     // once we've finished submitting reads for all of our files, start
     // processing completions until we're done.
-    //
-    // TODO: use info list, resubmit failed submissions.
-    // TODO: check for resubmission requirement, flush only when we're
-    // done reading.
     if (fileIter_ == end(info_) && readResults_.empty())
     {
-        spdlog::trace("waiting on xfer completion.");
-
-        sendExec_.cancel();
-        return !sendExec_.finished();
+        hashExec_.cancel();
+        return !hashExec_.finished();
     }
 
     return true;
 }
 
-TxSession::file_info_iter_type TxSession::nextFile(file_info_iter_type first, file_info_iter_type last)
+std::optional<JournalFileDiff> VerifySession::diff()
+{
+    if (!hashExec_.finished())
+        return std::nullopt;
+
+    const auto inputJournal = Journal{inputJournalPath_};
+
+    return diffJournals(inputJournal, journal_);
+}
+
+std::optional<Journal> VerifySession::releaseJournal() &&
+{
+    if (!hashExec_.finished())
+        return std::nullopt;
+
+    journalFile_.releaseFd();
+
+    return std::move(journal_);
+}
+
+VerifySession::file_info_iter_type VerifySession::nextFile(file_info_iter_type first, file_info_iter_type last)
 {
     while (first != last && (!S_ISREG(first->status.mode) || !first->status.size))
         ++first;
@@ -159,7 +187,7 @@ TxSession::file_info_iter_type TxSession::nextFile(file_info_iter_type first, fi
     return first;
 }
 
-bool TxSession::startFile(const FileInfo &info)
+bool VerifySession::startFile(const FileInfo &info)
 {
     using namespace std::chrono_literals;
 
@@ -174,7 +202,7 @@ bool TxSession::startFile(const FileInfo &info)
     auto fd = std::make_shared<ScopedFd>(
         ScopedFd{::open(filename.c_str(), flags)});
 
-    spdlog::debug("tx opened file id {}: {} @ fd {}", info.id, filename, fd->get());
+    spdlog::debug("verifier opened file id {}: {} @ fd {}", info.id, filename, fd->get());
 
     auto fileSz = std::filesystem::file_size(filename);
 
@@ -185,7 +213,8 @@ bool TxSession::startFile(const FileInfo &info)
     {
         const auto rateDeadline = Clock::now() + 1ms;
 
-        auto diskRead = Reader(fd, info.id, {0, fileSz}, pool_, &queue_);
+        auto diskRead = Reader(fd, info.id, {0, fileSz}, pool_, nullptr);
+        diskRead.setHashQueue(hashQueue_);
 
         if (auto future = readExec_.launch(std::move(diskRead)))
         {
@@ -200,6 +229,16 @@ bool TxSession::startFile(const FileInfo &info)
         , filename);
 
     return false;
+}
+
+void VerifySession::handleHash(const Hasher::DigestInfo &info)
+{
+    spdlog::trace("hash info: {} @{}: {:#08x}"
+        , info.fileId
+        , info.offset
+        , info.digest);
+
+    journal_.writeHash(info.fileId, info.offset, info.size, info.digest);
 }
 
 }

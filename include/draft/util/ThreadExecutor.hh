@@ -78,12 +78,21 @@ public:
 
     bool runOnce();
 
-    bool empty() const noexcept;
     bool finished() const;
     void cancel() noexcept;
     void waitFinished() noexcept;
+    void clearFinished();
+
+    bool haveException() const
+    {
+        return std::any_of(
+            begin(runq_), end(runq_),
+            [](const auto &r) { return r && !!r->exception(); });
+    }
 
 private:
+    using Lock = std::unique_lock<std::mutex>;
+
     class Runnable
     {
     public:
@@ -91,6 +100,7 @@ private:
         virtual bool runOnce() const = 0;
         virtual void cancel() noexcept = 0;
         virtual bool finished() const = 0;
+        virtual std::exception_ptr exception() const = 0;
     };
 
     template <typename T>
@@ -102,13 +112,43 @@ private:
         {
             thd_ = std::jthread(
                 [this](std::stop_token token, T t_) mutable {
-                    while (!token.stop_requested() && t_.runOnce(token))
-                        ;
+                    while (!token.stop_requested())
+                    {
+                        try
+                        {
+                            if (!t_.runOnce(token))
+                                break;
+                        } catch (const std::exception &e) {
+                            const auto id = std::this_thread::get_id();
+                            spdlog::warn("thd {:#x} exception: {}"
+                                , std::hash<std::thread::id>{ }(id)
+                                , e.what());
+
+                            Lock lk(exMtx_);
+                            exception_ = std::current_exception();
+
+                            break;
+                        }
+                    }
 
                     if (token.stop_requested() && (options_ & Options::DoFinalize))
                     {
                         spdlog::debug("thd runnable finalizing.");
-                        t_.runOnce(token);
+
+                        try
+                        {
+                            t_.runOnce(token);
+                        } catch (const std::exception &e) {
+                            const auto id = std::this_thread::get_id();
+                            spdlog::warn("thd {:#x} finalizing exception: {}"
+                                , std::hash<std::thread::id>{ }(id)
+                                , e.what());
+
+                            Lock lk(exMtx_);
+
+                            if (!exception_)
+                                exception_ = std::current_exception();
+                        }
                     }
 
                     finished_ = true;
@@ -119,6 +159,12 @@ private:
         ~Runnable_() noexcept
         {
             thd_.request_stop();
+        }
+
+        std::exception_ptr exception() const override
+        {
+            Lock lk(exMtx_);
+            return exception_;
         }
 
     private:
@@ -139,6 +185,8 @@ private:
 
         std::atomic_bool finished_{ };
         unsigned options_{ };
+        mutable std::mutex exMtx_{ };
+        std::exception_ptr exception_{ };
         std::jthread thd_{ };
     };
 

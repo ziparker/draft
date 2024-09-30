@@ -1,5 +1,5 @@
 /**
- * @file Sender.hh
+ * @file Hasher.hh
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
@@ -24,36 +24,43 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_UTIL_SENDER_HH_
-#define __DRAFT_UTIL_SENDER_HH_
+#ifndef __DRAFT_UTIL_HASHER_HH_
+#define __DRAFT_UTIL_HASHER_HH_
 
+#include <functional>
 #include <stop_token>
 
-#include "Journal.hh"
 #include "Util.hh"
 
 namespace draft::util {
 
-class Sender
+class Journal;
+
+class Hasher
 {
 public:
-    using Buffer = BufferPool::Buffer;
-
-    Sender(ScopedFd fd, BufQueue &queue);
-
-    void useHashLog(const std::shared_ptr<Journal> &hashLog)
+    struct DigestInfo
     {
-        hashLog_ = hashLog;
-    }
+        uint64_t digest{ };
+        size_t offset{ };
+        size_t size{ };
+        unsigned fileId{ };
+    };
+
+    using Buffer = BufferPool::Buffer;
+    using Callback = std::function<void(const DigestInfo &)>;
+
+    Hasher(BufQueue &queue, const std::shared_ptr<Journal> &hashLog);
+    Hasher(BufQueue &queue, Callback cb);
 
     bool runOnce(std::stop_token stopToken);
 
 private:
-    size_t write(BDesc desc);
+    uint64_t hash(const BDesc &desc);
 
     BufQueue *queue_{ };
-    ScopedFd fd_{ };
-    std::shared_ptr<Journal> hashLog_{ };
+    const std::shared_ptr<Journal> hashLog_{ };
+    Callback cb_{ };
 };
 
 }

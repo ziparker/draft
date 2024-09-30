@@ -24,12 +24,14 @@
  * SOFTWARE.
  */
 
+#include <filesystem>
 #include <iterator>
 
 #include <sys/stat.h>
 
 #include <spdlog/spdlog.h>
 
+#include <draft/util/Journal.hh>
 #include <draft/util/Receiver.hh>
 #include <draft/util/RxSession.hh>
 #include <draft/util/Writer.hh>
@@ -50,48 +52,30 @@ RxSession::~RxSession() noexcept
 
 void RxSession::start(util::TransferRequest req)
 {
-    createTargetFiles(conf_.pathRoot, req.config.fileInfo);
+    namespace fs = std::filesystem;
 
-    auto fileInfo = std::vector<FileInfo>{ };
-    auto fileMap = FdMap{ };
-    for (const auto &item : req.config.fileInfo)
-    {
-        if (!S_ISREG(item.status.mode))
-            continue;
+    if (!conf_.noWrite)
+        createTargetFiles(conf_.pathRoot, req.config.fileInfo);
 
-        auto path = rootedPath(
-            conf_.pathRoot,
-            item.path,
-            item.targetSuffix);
+    if (!conf_.journalPath.empty())
+        journal_ = std::make_unique<Journal>(conf_.journalPath, req.config.fileInfo);
 
-        auto fd = ScopedFd{::open(path.c_str(), O_WRONLY | O_DIRECT)};
-        auto rawFd = fd.get();
-
-        if (rawFd < 0)
-        {
-            spdlog::error("unable to open file '{}': {}"
-                , path.native()
-                , std::strerror(errno));
-
-            continue;
-        }
-
-        fileInfo.push_back({
-            path,
-            std::move(fd),
-            item.status.size,
-            item.status.mode
-        });
-
-        fileMap.insert({item.id, rawFd});
-    }
+    auto [fileMap, fileInfo] = createFiles(req);
 
     const auto view = std::views::transform(
-        targetFds_, [this](auto &&fd){ return Receiver{std::move(fd), queue_}; });
+        targetFds_, [this](auto &&fd){
+            return Receiver{std::move(fd), queue_};
+        });
 
     auto receivers = std::vector<Receiver>{
         std::make_move_iterator(begin(view)),
         std::make_move_iterator(end(view))};
+
+    if (journal_)
+    {
+        for (auto &receiver : receivers)
+            receiver.useHashLog(journal_);
+    }
 
     targetFds_ = std::vector<ScopedFd>{ };
 
@@ -99,7 +83,10 @@ void RxSession::start(util::TransferRequest req)
 
     recvExec_.add(std::move(receivers));
 
-    writeExec_.add(Writer(std::move(fileMap), queue_), ThreadExecutor::Options::DoFinalize);
+    auto writer = Writer(std::move(fileMap), queue_);
+    writer.setWritesEnabled(!conf_.noWrite);
+
+    writeExec_.add(std::move(writer), ThreadExecutor::Options::DoFinalize);
 
     fileInfo_ = std::move(fileInfo);
 }
@@ -110,8 +97,12 @@ void RxSession::finish() noexcept
     writeExec_.cancel();
     writeExec_.waitFinished();
 
+    if (journal_)
+        journal_->sync();
+
     // truncate after each file.
-    truncateFiles();
+    if (!conf_.noWrite)
+        truncateFiles();
 }
 
 void RxSession::truncateFiles()
@@ -151,6 +142,56 @@ bool RxSession::runOnce()
     writeExec_.runOnce();
 
     return false;
+}
+
+std::pair<FdMap, std::vector<RxSession::FileInfo>> RxSession::createFiles(
+    const util::TransferRequest &req)
+{
+    auto fileMap = FdMap{ };
+    auto fileInfo = std::vector<FileInfo>{ };
+
+    for (const auto &item : req.config.fileInfo)
+    {
+        if (!S_ISREG(item.status.mode))
+            continue;
+
+        auto path = rootedPath(
+            conf_.pathRoot,
+            item.path,
+            item.targetSuffix);
+
+        auto flags = O_WRONLY;
+
+        if (conf_.useDirectIO)
+            flags |= O_DIRECT;
+
+        auto fd = ScopedFd{ };
+
+        if (!conf_.noWrite)
+            fd = ScopedFd{::open(path.c_str(), flags)};
+
+        auto rawFd = fd.get();
+
+        if (rawFd < 0)
+        {
+            spdlog::error("unable to open file '{}': {}"
+                , path.native()
+                , std::strerror(errno));
+
+            continue;
+        }
+
+        fileInfo.push_back({
+            path,
+            std::move(fd),
+            item.status.size,
+            item.status.mode
+        });
+
+        fileMap.insert({item.id, rawFd});
+    }
+
+    return {std::move(fileMap), std::move(fileInfo)};
 }
 
 }

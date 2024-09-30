@@ -197,7 +197,7 @@ size_t writeChunk(int fd, iovec *iov, size_t iovCount)
     return written;
 }
 
-size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset)
+size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset, unsigned flags)
 {
     auto written = size_t{ };
 
@@ -208,10 +208,10 @@ size_t writeChunk(int fd, iovec *iov, size_t iovCount, size_t offset)
             throw std::range_error("writeChunk offset is out of off_t range.");
         }
 
-        const auto len = ::pwritev(fd, iov, iovCount, static_cast<off_t>(offset));
+        const auto len = ::pwritev2(fd, iov, iovCount, static_cast<off_t>(offset), static_cast<int>(flags));
 
         if (len < 0)
-            throw std::system_error(errno, std::system_category(), "write");
+            throw std::system_error(errno, std::system_category(), "pwritev");
 
         if (!len)
             break;
@@ -398,6 +398,25 @@ std::filesystem::path rootedPath(std::filesystem::path root, std::string path, s
     root += std::move(path);
 
     return fs::absolute(root);
+}
+
+std::pair<ScopedFd, std::string> makeTempFile(std::string prefix, std::string suffix, int flags)
+{
+    prefix += "XXXXXX";
+
+    const auto suffixLen = suffix.size();
+
+    if (suffixLen > std::numeric_limits<int>::max())
+        throw std::invalid_argument("draft: makeTempFile - suffix too long");
+
+    prefix += std::move(suffix);
+
+    auto fd = ScopedFd{mkostemps(prefix.data(), static_cast<int>(suffixLen), flags)};
+
+    if (fd.get() < 0)
+        throw std::system_error(errno, std::system_category(), "mkostemps");
+
+    return {std::move(fd), std::move(prefix)};
 }
 
 namespace net {
@@ -694,6 +713,5 @@ std::vector<ScopedFd> bindNetworkTargets(const std::vector<NetworkTarget> &targe
 
     return {begin(view), end(view)};
 }
-
 
 }

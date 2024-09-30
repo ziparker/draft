@@ -31,10 +31,13 @@
 #include <draft/util/Receiver.hh>
 #include <draft/util/Stats.hh>
 
+#include "xxhash.h"
+
 namespace draft::util {
 
-Receiver::Receiver(ScopedFd fd, BufQueue &queue):
+Receiver::Receiver(ScopedFd fd, BufQueue &queue, BufQueue *hashQueue):
     queue_(&queue),
+    hashQueue_(hashQueue),
     svcFd_(std::move(fd))
 {
     pool_ = BufferPool::make(BufSize, 35);
@@ -107,6 +110,14 @@ bool Receiver::waitData(std::stop_token stopToken)
 
         auto buf = std::make_shared<Buffer>(std::move(buf_));
 
+        if (hashLog_)
+        {
+            const auto digest = XXH3_64bits(buf->data(), header_.payloadLength);
+
+            hashLog_->writeHash(
+                header_.fileId, header_.fileOffset, header_.payloadLength, digest);
+        }
+
         while (!stopToken.stop_requested() &&
             !queue_->put({
                 buf,
@@ -121,6 +132,12 @@ bool Receiver::waitData(std::stop_token stopToken)
 
         if (auto s = stats(header_.fileId))
             ++s->queuedBlockCount;
+
+        if (hashQueue_ && !hashQueue_->put({buf, header_.fileId, header_.fileOffset, header_.payloadLength}, 1ms))
+        {
+            spdlog::warn("receiver: unable to enqueue file {} offset {} len {} for hashing (queue full)."
+                , header_.fileId, header_.fileOffset, header_.payloadLength);
+        }
 
         haveHeader_ = false;
         offset_ = 0;

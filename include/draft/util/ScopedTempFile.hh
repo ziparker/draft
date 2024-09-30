@@ -1,9 +1,9 @@
 /**
- * @file Sender.hh
+ * @file ScopedTempFile.hh
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2022 Zachary Parker
+ * Copyright (c) 2023 Zachary Parker
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -24,36 +24,40 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_UTIL_SENDER_HH_
-#define __DRAFT_UTIL_SENDER_HH_
+#ifndef __DRAFT_UTIL_SCOPED_TEMP_FILE_HH__
+#define __DRAFT_UTIL_SCOPED_TEMP_FILE_HH__
 
-#include <stop_token>
+#include <string>
 
-#include "Journal.hh"
-#include "Util.hh"
+#include "ScopedFd.hh"
 
 namespace draft::util {
 
-class Sender
+class ScopedTempFile
 {
 public:
-    using Buffer = BufferPool::Buffer;
+    ScopedTempFile() = default;
+    explicit ScopedTempFile(std::string prefix, std::string suffix = { }, int flags = 0);
 
-    Sender(ScopedFd fd, BufQueue &queue);
+    ScopedTempFile(ScopedTempFile &&) = default;
+    ScopedTempFile &operator=(ScopedTempFile &&) = default;
 
-    void useHashLog(const std::shared_ptr<Journal> &hashLog)
+    ~ScopedTempFile() noexcept;
+
+    int fd() const noexcept;
+    ScopedFd releaseFd() noexcept;
+
+    std::string path() const
     {
-        hashLog_ = hashLog;
+        return path_;
     }
 
-    bool runOnce(std::stop_token stopToken);
+    int close() noexcept;
+    int unlink() noexcept;
 
 private:
-    size_t write(BDesc desc);
-
-    BufQueue *queue_{ };
-    ScopedFd fd_{ };
-    std::shared_ptr<Journal> hashLog_{ };
+    ScopedFd fd_;
+    std::string path_;
 };
 
 }

@@ -1,5 +1,5 @@
 /**
- * @file Sender.hh
+ * @file Version.cc
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
@@ -24,38 +24,16 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_UTIL_SENDER_HH_
-#define __DRAFT_UTIL_SENDER_HH_
-
-#include <stop_token>
-
-#include "Journal.hh"
-#include "Util.hh"
+#include <draft/util/Version.hh>
+#include <spdlog/fmt/fmt.h>
 
 namespace draft::util {
 
-class Sender
+std::string versionString()
 {
-public:
-    using Buffer = BufferPool::Buffer;
-
-    Sender(ScopedFd fd, BufQueue &queue);
-
-    void useHashLog(const std::shared_ptr<Journal> &hashLog)
-    {
-        hashLog_ = hashLog;
-    }
-
-    bool runOnce(std::stop_token stopToken);
-
-private:
-    size_t write(BDesc desc);
-
-    BufQueue *queue_{ };
-    ScopedFd fd_{ };
-    std::shared_ptr<Journal> hashLog_{ };
-};
-
+    return fmt::format("{} {}"
+        , __DATE__
+        , __TIME__);
 }
 
-#endif
+}

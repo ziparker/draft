@@ -37,9 +37,11 @@
 #include <strings.h>
 #include <sys/eventfd.h>
 
-#include <draft/util/PollSet.hh>
-#include <draft/util/Util.hh>
 #include <spdlog/spdlog.h>
+
+#include <draft/util/PollSet.hh>
+#include <draft/util/ScopedTempFile.hh>
+#include <draft/util/Util.hh>
 
 ////////////////////////////////////////////////////////////////////////////////
 // Util
@@ -285,6 +287,20 @@ TEST(buffer_pool, get)
     *p2 = 0x42;
 
     EXPECT_EQ(*p1, *p2);
+}
+
+TEST(buffer_pool, get_tmo)
+{
+    using namespace std::chrono_literals;
+
+    // 0-sized pools not allowed, so create & consume initial buffer.
+    auto pool = BufferPool::make(64, 1);
+
+    auto buf = pool->get();
+    auto buf2 = pool->get(std::chrono::steady_clock::now() + 1ns);
+    EXPECT_TRUE(buf);
+    EXPECT_FALSE(buf2);
+    EXPECT_EQ(nullptr, buf2.data());
 }
 
 TEST(buffer_pool, buf_move_ctor)
@@ -771,4 +787,20 @@ TEST(wait_q, put_get)
     auto v = q.get();
     ASSERT_TRUE(v);
     EXPECT_EQ(*v, 42);
+}
+
+////////////////////////////////////////////////////////////////////////////////
+// ScopedTempFile
+
+TEST(makeTempFile, create)
+{
+    namespace fs = std::filesystem;
+
+    auto path = []{
+            auto f = ScopedTempFile("foo", "bar");
+            EXPECT_TRUE(fs::exists(f.path()));
+            return f.path();
+        }();
+
+    EXPECT_FALSE(fs::exists(path));
 }

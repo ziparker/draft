@@ -1,5 +1,5 @@
 /**
- * @file Sender.cc
+ * @file Hasher.cc
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
@@ -24,21 +24,30 @@
  * SOFTWARE.
  */
 
-#include <draft/util/Journal.hh>
-#include <draft/util/Sender.hh>
-#include <draft/util/Stats.hh>
+#include <unistd.h>
 
 #include "xxhash.h"
 
+#include <draft/util/Hasher.hh>
+#include <draft/util/Journal.hh>
+#include <draft/util/ScopedTimer.hh>
+#include <draft/util/Stats.hh>
+
 namespace draft::util {
 
-Sender::Sender(ScopedFd fd, BufQueue &queue):
+Hasher::Hasher(BufQueue &queue, const std::shared_ptr<Journal> &hashLog):
     queue_(&queue),
-    fd_(std::move(fd))
+    hashLog_(hashLog)
 {
 }
 
-bool Sender::runOnce(std::stop_token stopToken)
+Hasher::Hasher(BufQueue &queue, Callback cb):
+    queue_(&queue),
+    cb_(std::move(cb))
+{
+}
+
+bool Hasher::runOnce(std::stop_token stopToken)
 {
     using namespace std::chrono_literals;
 
@@ -46,44 +55,52 @@ bool Sender::runOnce(std::stop_token stopToken)
 
     while (auto desc = queue_->get(Clock::now() + 1ms))
     {
-        ++stats().dequeuedBlockCount;
+        // TODO: maybe this for hashes?
+        //if (auto s = stats(desc->fileId))
+        //    ++s->dequeuedBlockCount;
 
-        if (auto s = stats(desc->fileId))
-            ++s->dequeuedBlockCount;
+        if (!desc->buf)
+            continue;
 
-        const auto len = write(std::move(*desc)) - sizeof(wire::ChunkHeader);
+        auto digest = uint64_t{ };
 
-        stats().netByteCount += len;
+        {
+            auto timer = util::ScopedTimer{[&desc](double sec) {
+                    spdlog::trace("{}: xx3 file {} offset {} len {} - {:.06f} sec"
+                        , gettid()
+                        , desc->fileId
+                        , desc->offset
+                        , desc->len
+                        , sec);
+                }};
 
-        if (auto s = stats(desc->fileId))
-            s->netByteCount += len;
+            digest = hash(*desc);
+
+            if (hashLog_)
+            {
+                hashLog_->writeHash(
+                    desc->fileId,
+                    desc->offset,
+                    desc->len,
+                    digest);
+            }
+
+            if (cb_)
+                cb_({digest, desc->offset, desc->len, desc->fileId});
+        }
+
+        spdlog::trace("hash: {:#x}", digest);
     }
 
     return !stopToken.stop_requested();
 }
 
-size_t Sender::write(BDesc desc)
+uint64_t Hasher::hash(const BDesc &desc)
 {
-    auto header = wire::ChunkHeader{ };
-    header.magic = wire::ChunkHeader::Magic;
-    header.fileOffset = desc.offset;
-    header.payloadLength = desc.len;
-    header.fileId = desc.fileId;
+    if (!desc.buf)
+        return 0;
 
-    iovec iov[2] = {
-        {&header, sizeof(header)},
-        {desc.buf->data(), desc.len}
-    };
-
-    if (hashLog_)
-    {
-        const auto digest = XXH3_64bits(desc.buf->data(), desc.len);
-
-        hashLog_->writeHash(
-            desc.fileId, desc.offset, desc.len, digest);
-    }
-
-    return writeChunk(fd_.get(), iov, 2);
+    return XXH3_64bits(desc.buf->data(), desc.len);
 }
 
 }

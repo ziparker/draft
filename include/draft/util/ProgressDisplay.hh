@@ -27,14 +27,15 @@
 #define __DRAFT_UTIL_PROGRESS_DISPLAY_HH__
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <iostream>
 #include <map>
 #include <memory>
 #include <system_error>
 
-#include <math.h>
 #include <sys/ioctl.h>
+#include <termios.h>
 
 #include "Stats.hh"
 #include "Util.hh"
@@ -109,8 +110,9 @@ inline std::ostream &operator<<(std::ostream &stream, const ETA &e)
         stream << h.count() << " h ";
 
     if (h > hours::zero() || m > minutes::zero())
-        stream << m.count() << " m ";
+        return stream << m.count() << " m ";
 
+    // only show seconds if we're less than 1 minute.
     stream << s.count() << " s";
 
     return stream;
@@ -118,12 +120,12 @@ inline std::ostream &operator<<(std::ostream &stream, const ETA &e)
 
 inline std::ostream &operator<<(std::ostream &s, const CursorInvisible &)
 {
-    return s << "\x1b[?25l;";
+    return s << "\x1b[?25l";
 }
 
 inline std::ostream &operator<<(std::ostream &s, const CursorVisible &)
 {
-    return s << "\x1b[?25h;";
+    return s << "\x1b[?25h";
 }
 
 inline std::ostream &operator<<(std::ostream &s, const ClearScreen &)
@@ -270,10 +272,18 @@ public:
     ~ProgressDisplay() noexcept
     {
         std::cout << term::CursorVisible{ };
+
+        if (initialTermState_)
+            tcsetattr(1, TCSANOW, &initialTermState_.value());
     }
 
     void init()
     {
+        // capture terminal state, if possible, so we can attempt to restore it later.
+        initialTermState_.reset();
+        if (termios state; !tcgetattr(1, &state))
+            initialTermState_ = state;
+
         std::cout << std::unitbuf;
         std::cout << term::CursorInvisible{ };
     }
@@ -309,8 +319,8 @@ public:
             conf.endChar.tick();
         }
 
-        std::cout << "\n" << term::EraseLine{ } <<
-            "ETA: " << std::setprecision(1) << std::fixed << term::ETA{globalEta_};
+        std::cout << term::EraseLine{ } << term::CursorBeginDown{1} <<
+            term::EraseLine{ } << "ETA: " << std::setprecision(1) << std::fixed << term::ETA{globalEta_};
 
         std::cout <<
             term::CursorBeginDown{1} <<
@@ -379,6 +389,8 @@ private:
     double globalEta_{ };
     double globalBw_{ };
     bool updateWinSz_{ };
+
+    std::optional<termios> initialTermState_{ };
 };
 
 }
