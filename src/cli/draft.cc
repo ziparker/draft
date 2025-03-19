@@ -58,8 +58,9 @@ int dispatchSubcommand(int argc, char **argv)
         {"decompress", cmd::decompress},
         #endif
         #ifdef DRAFT_HAVE_CUDA
-        {"nvcompress", cmd::nvcompress}
+        {"nvcompress", cmd::nvcompress},
         #endif
+        {"serve", cmd::serve},
     };
 
     const auto usage = [argv, &subProgs] {

@@ -35,6 +35,7 @@ int journal(int argc, char **argv);
 int nvcompress(int argc, char **argv);
 int recv(int argc, char **argv);
 int send(int argc, char **argv);
+int serve(int argc, char **argv);
 
 }
 
