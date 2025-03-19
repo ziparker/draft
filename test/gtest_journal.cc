@@ -90,7 +90,11 @@ std::pair<FileJanitor, Journal> setupJournal(size_t hashCount = 0, unsigned hash
     auto janitor = FileJanitor{basename};
     auto journal = Journal(basename, { });
 
-    fs::exists(basename);
+    if (!fs::exists(basename))
+    {
+        throw std::runtime_error(fmt::format(
+            "draft gtest journal: unable to set up journal, '{}'", basename));
+    }
 
     for (size_t i = 0; i < hashCount; ++i)
     {
