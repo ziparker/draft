@@ -110,7 +110,7 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
 
     const auto usage = [argv] {
             std::cout << fmt::format(
-                "usage: {} (send|recv) [-h][-j][-J [<path>][-n][N][-p <path>][-P][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
+                "usage: {} (send|recv) [-h][-j][-J [<path>][-n][-N][-p <path>][-P][-s <server[:port]>] -t ip[:port] [-t ip[:port] -t ...]\n"
                 , ::basename(argv[0]));
         };
 
