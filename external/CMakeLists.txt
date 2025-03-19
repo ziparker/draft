@@ -29,6 +29,10 @@ project(draft_external VERSION 0.0.1)
 
 include(ExternalProject)
 
+option(DRAFT_ENABLE_CBLOSC "enable cblosc compression" OFF)
+option(DRAFT_ENABLE_CITYHASH "enable cityhash for block hashing" OFF)
+option(DRAFT_ENABLE_CUDA "enable cuda compression" OFF)
+
 if (DRAFT_ENABLE_CBLOSC)
     ExternalProject_Add(
         c-blosc2
@@ -57,6 +61,18 @@ if (DRAFT_ENABLE_CITYHASH)
         INSTALL_COMMAND
             make -C <SOURCE_DIR> prefix=${CMAKE_INSTALL_PREFIX} install)
 endif ()
+
+ExternalProject_Add(
+    crow
+    GIT_REPOSITORY https://github.com/CrowCpp/Crow.git
+    GIT_TAG v1.2.1.2
+    CMAKE_ARGS
+        -DCMAKE_INSTALL_PREFIX=${CMAKE_INSTALL_PREFIX}
+        -DBUILD_SHARED=${BUILD_SHARED_LIBS}
+        -DCROW_BUILD_EXAMPLES=OFF
+        -DCROW_BUILD_TESTS=OFF
+        -DCROW_ENABLE_SSL=ON
+        -DCROW_ENABLE_COMPRESSION=ON)
 
 ExternalProject_Add(
     nlohmann_json
