@@ -39,6 +39,7 @@
 #include <draft/util/TxSession.hh>
 #include <draft/util/Util.hh>
 #include <draft/util/UtilJson.hh>
+#include <draft/util/Version.hh>
 
 #include "Cmd.hh"
 
@@ -405,7 +406,11 @@ int serve(int argc, char **argv)
     auto svc = crow::SimpleApp{ };
 
     CROW_ROUTE(svc, "/")([] {
-            return "draft";
+            return fmt::format("draft {}\n", util::versionString());
+        });
+
+    CROW_ROUTE(svc, "/v0/files")([](const crow::request &, crow::response &res) {
+            res.end(nlohmann::json{util::getFileInfo(".")}.dump());
         });
 
     svc.port(opts.port).run();
