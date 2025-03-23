@@ -413,6 +413,27 @@ int serve(int argc, char **argv)
             res.end(nlohmann::json{util::getFileInfo(".")}.dump());
         });
 
+    CROW_ROUTE(svc, "/v0/transfer")
+        .methods("POST"_method)
+        ([](const crow::request &req, crow::response &res) {
+            auto j = nlohmann::json::parse(req.body);
+            handleTransferRequest(j);
+            // (todo) validate & enqueue transfer
+            // if rx
+            //      start rx session
+            //      add ephemeral ports (rx info) to req params
+            //      send updated req to sender
+            //      await tx req (file info)
+            //      start rx sess
+            // else
+            //      send rx start req (receiver sets up endpoints & returns info)
+            //      await rx ephemeral session endpoint info
+            //      create tx req (file info)
+            //      send tx req -> ephemeral session endpoint
+            //      get params
+            //      start tx sess against params' ports
+        });
+
     svc.port(opts.port).run();
 
     return 0;

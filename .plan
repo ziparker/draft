@@ -30,3 +30,10 @@ durable, resumable, asynchronous file transfer
         - session?
     - [ ] tui
     - [ ] configurable buf size, r/w/tx/rx thd counts
+    - [ ] client/server (node) discovery
+    - [ ] link/interface discovery
+
+--
+https://github.com/ValveSoftware/GameNetworkingSockets
+    - ack vector: DCCP (RFC 4340, section 11.4)
+    - https://gafferongames.com/post/reliable_ordered_messages/
