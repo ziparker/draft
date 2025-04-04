@@ -67,19 +67,21 @@ struct Options
     OutputFormat format{ };
     Operations ops{ };
     std::string rootPath{ };
+    bool useDirectIO{true};
 };
 
 Options parseOptions(int argc, char **argv)
 {
     using namespace std::string_literals;
 
-    static constexpr const char *shortOpts = "c:d:Df:hv";
+    static constexpr const char *shortOpts = "c:d:Df:hnv";
     static constexpr struct option longOpts[] = {
         {"create", required_argument, nullptr, 'c'},
         {"diff", no_argument, nullptr, 'D'},
         {"dump", required_argument, nullptr, 'd'},
         {"format", required_argument, nullptr, 'f'},
         {"help", no_argument, nullptr, 'h'},
+        {"nodirect", no_argument, nullptr, 'n'},
         {"verify", no_argument, nullptr, 'v'},
         {nullptr, 0, nullptr, 0}
     };
@@ -101,6 +103,9 @@ Options parseOptions(int argc, char **argv)
                 "       formats: standard (default), csv\n"
                 "   -h | --help\n"
                 "       show this help\n"
+                "   -n | --nodirect\n"
+                "       disable the use of direct-io.\n"
+                "       this enables usage on filesystems that don't support it.\n"
                 "   -v | --verify <journal file>\n"
                 "       verify a journal against local filesystem contents.\n"
                 , ::basename(argv[0]));
@@ -140,6 +145,9 @@ Options parseOptions(int argc, char **argv)
             case 'h':
                 usage();
                 std::exit(0);
+            case 'n':
+                opts.useDirectIO = false;
+                break;
             case 'v':
                 opts.ops.verify = 1;
                 break;
@@ -269,7 +277,7 @@ void dumpDiff(const util::JournalFileDiff &diff, const Options &opts)
 int verifyJournal(const Journal &journal, const Options &opts)
 {
     auto config = util::VerifySession::Config{
-            .useDirectIO = true
+            .useDirectIO = opts.useDirectIO
         };
 
     auto diff = util::verifyJournal(journal, std::move(config));
