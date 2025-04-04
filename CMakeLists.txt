@@ -145,7 +145,7 @@ if (blosc2_LIBRARY)
     target_include_directories(draftutil PRIVATE ${blosc2_INCLUDE_DIRS})
 endif ()
 
-if (nvcomp_LIBRARY)
+if (nvcomp_LIBRARY AND cufile_LIBRARY)
     target_compile_definitions(draftutil PUBLIC DRAFT_HAVE_CUDA=1)
     message(STATUS "draft: including nvidia compression command.")
     target_link_libraries(draftutil PRIVATE ${nvcomp_LIBRARY} ${cufile_LIBRARY} CUDA::cudart)
