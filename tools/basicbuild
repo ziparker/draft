@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# aiming for installation under ubuntu 20.04, where this is the latest version
+# by default.
+export CC=gcc-10
+export CXX=g++-10
+
+cmake -B /ctx/exbuild -S /src/external -DCMAKE_INSTALL_PREFIX=/ctx/env &&
+make -j$(nproc) -C /ctx/exbuild &&
+cmake -B /ctx/build -S /src -DCMAKE_PREFIX_PATH=/ctx/env -DCMAKE_BUILD_TYPE=RelWithDebugInfo -DCMAKE_INSTALL_PREFIX=/ctx/install -DDRAFT_ENABLE_SANITIZERS=OFF -DDRAFT_ENABLE_TESTS=OFF &&
+make -j$(nproc) -C /ctx/build install

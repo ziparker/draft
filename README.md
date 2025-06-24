@@ -85,6 +85,13 @@ like the following:
 
 ` -DDRAFT_ENABLE_CUDA=ON` - build nvcomp, for gpu compression support via the `draft nvcompress` command (experimental).
 
+### Ubuntu 20.04 builds
+
+To build an executable for use on Ubuntu 20.04:
+    docker build --tag draft --force-rm - < tools/build.ubuntu20.04.docker
+    docker run --rm -it -v $PWD:/src -v $PWD/output:/ctx draft
+    # output is in output/install/bin/draft
+
 ## draft
 
 To build draft, we just point to the environment directory from the external

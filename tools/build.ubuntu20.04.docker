@@ -1,0 +1,15 @@
+FROM ubuntu:20.04
+
+RUN export DEBIAN_FRONTEND=noninteractive \
+    && apt update \
+    && apt install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        cmake \
+        g++-10 \
+        git \
+    && rm -rf /var/lib/apt/lists/*
+
+USER 1000:1000
+
+CMD ["/src/tools/basicbuild"]
