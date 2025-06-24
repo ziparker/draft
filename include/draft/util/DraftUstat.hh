@@ -51,7 +51,7 @@ using ustat::metric;
 using ustat::counter_metric;
 using ustat::util::scoped_timer_metric;
 #else
-inline void configure(...) { spdlog::warn("nope"); }
+inline void configure(...) { }
 
 struct metric
 {
