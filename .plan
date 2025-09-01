@@ -20,7 +20,10 @@ durable, resumable, asynchronous file transfer
 - spdk/dpdk
 
 - usability
-    - [ ] multiple rx (persistent receiver)
+    - [ ] hold only actively transferring fds, with limit
+    - [ ] ssl
+    - [ ] service endpoint to accept connection, fork rx session with
+      persistent control endpoint & spawned xfer endpoints
     - [ ] bind to i/f
     - [ ] bind to ANY
     - [ ] stats
@@ -37,3 +40,9 @@ durable, resumable, asynchronous file transfer
 https://github.com/ValveSoftware/GameNetworkingSockets
     - ack vector: DCCP (RFC 4340, section 11.4)
     - https://gafferongames.com/post/reliable_ordered_messages/
+
+--
+
+    - service (daemon)
+        - connection -> draft session (rx or tx)
+            - xfer req determines direction, endpoints to connect to
