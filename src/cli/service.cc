@@ -413,7 +413,7 @@ int serve(int argc, char **argv)
             res.end(nlohmann::json{util::getFileInfo(".")}.dump());
         });
 
-    CROW_ROUTE(svc, "/v0/transfer")
+    CROW_ROUTE(svc, "/v0/session")
         .methods("POST"_method)
         ([](const crow::request &req, crow::response &res) {
             auto j = nlohmann::json::parse(req.body);

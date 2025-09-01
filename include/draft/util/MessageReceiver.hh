@@ -1,9 +1,9 @@
 /**
- * @file UtilJson.hh
+ * @file MessageReceiver.hh
  *
  * Licensed under the MIT License <https://opensource.org/licenses/MIT>.
  * SPDX-License-Identifier: MIT
- * Copyright (c) 2021 Zachary Parker
+ * Copyright (c) 2025 Zachary Parker
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of
  * this software and associated documentation files (the "Software"), to deal in
@@ -24,33 +24,39 @@
  * SOFTWARE.
  */
 
-#ifndef __DRAFT_UTIL_JSON_HH__
-#define __DRAFT_UTIL_JSON_HH__
+#ifndef __DRAFT_UTIL_MESSAGE_RECEIVER_HH__
+#define __DRAFT_UTIL_MESSAGE_RECEIVER_HH__
 
-#include <nlohmann/json.hpp>
+#include <vector>
 
 #include "Util.hh"
 
 namespace draft::util {
 
-void to_json(nlohmann::json &j, const FileInfo::Status &status);
-void to_json(nlohmann::json &j, const FileInfo &info);
-
-void from_json(const nlohmann::json &j, FileInfo::Status &status);
-void from_json(const nlohmann::json &j, FileInfo &info);
-
-Buffer generateTransferRequestMsg(std::vector<FileInfo> info);
-Buffer generateTransferRequestMsg(std::vector<std::string> paths);
-
-TransferRequest deserializeTransferRequest(const Buffer &buf);
-TransferRequest deserializeTransferRequest(const std::vector<uint8_t> &buf);
-
-template <typename T>
-T deserializeMessage(const Buffer &buf)
+class MessageReceiver
 {
-    if constexpr (std::is_same_v<T, TransferRequest>)
-        return deserializeTransferRequest(buf);
-}
+public:
+    explicit MessageReceiver(int fd);
+
+    bool runOnce();
+
+    template <typename T>
+    T get() const
+    {
+        auto header = this->get();
+
+        return deserializeMessage(
+            Buffer{buf_.data() + sizeof(*header), header->payloadLength});
+    }
+
+private:
+    const wire::ChunkHeader *get() const;
+
+    std::vector<uint8_t> buf_{ };
+    size_t offset_{ };
+    int fd_{-1};
+    bool haveMessage_{ };
+};
 
 }
 

@@ -244,7 +244,7 @@ void updateFileStats(const std::vector<draft::util::FileInfo> &info)
     }
 }
 
-std::optional<draft::util::TransferRequest> awaitTransferRequest(draft::util::ScopedFd fd)
+std::optional<draft::util::TransferRequest> awaitTransferRequest(ScopedFd fd)
 {
     auto rx = draft::util::InfoReceiver{std::move(fd)};
 
@@ -261,14 +261,50 @@ std::optional<draft::util::TransferRequest> awaitTransferRequest(draft::util::Sc
     return info;
 }
 
-void sendTransferRequest(draft::util::ScopedFd fd, const std::vector<draft::util::FileInfo> &info)
+template <typename T>
+std::optional<T> awaitResponse(int fd)
+{
+    auto rx = draft::util::MessageReceiver{fd};
+
+    while (!done_ && !rx.runOnce())
+        ;
+
+    if (done_)
+        return std::nullopt;
+
+    return rx.get<T>();
+}
+
+void sendTransferRequest(int svcFd, const std::vector<draft::util::FileInfo> &info)
 {
     auto request = draft::util::generateTransferRequestMsg(info);
-    draft::util::net::writeAll(fd.get(), request.data(), request.size());
+    draft::util::net::writeAll(fd, request.data(), request.size());
 
     updateFileStats(info);
 
     spdlog::debug("sent xfer req: {}", request.size());
+}
+
+TransferRequestResponse requestSend(int svcFd, const std::vector<draft::util::FileInfo> &info)
+{
+    auto request = draft::util::generateTransferRequestMsg(info);
+    draft::util::net::writeAll(fd, request.data(), request.size());
+
+    updateFileStats(info);
+
+    spdlog::debug("sent tx req: {}", request.size());
+
+    return awaitResponse<draft::util::SendRequestResponse>(svcFd);
+}
+
+TransferRequestResponse requestReceive(int svcFd, const std::vector<std::string> &paths)
+{
+    auto request = draft::util::generateTransferRequestMsg(info);
+    draft::util::net::writeAll(fd, request.data(), request.size());
+
+    spdlog::debug("sent rx req: {}", request.size());
+
+    return awaitResponse<draft::util::ReceiveRequestResponse>(svcFd);
 }
 
 void dumpStats(const draft::util::Stats &stats)
@@ -313,6 +349,8 @@ int recv(int argc, char **argv)
 
     auto req = awaitTransferRequest(
         net::bindTcp(service.ip, service.port));
+
+    fd.close();
 
     if (!req)
         return 1;
@@ -410,6 +448,113 @@ int send(int argc, char **argv)
     }
 
     spdlog::info("ending tx session.");
+
+    dumpStats(stats());
+
+    return 0;
+}
+
+namespace {
+
+draft::util::Session startTxSession(int svcFd, Options::SessionConfig config)
+{
+    const auto &path = config.pathRoot;
+
+    auto fileInfo = getFileInfo(path);
+
+    auto resp = requestSend(svcFd, fileInfo);
+
+    if (!resp)
+        throw std::runtime_error("timed-out while waiting for tx response");
+
+    statsMgr().reallocate(fileInfo.size());
+    updateFileStats(fileInfo);
+
+    config.targets = filterNetworkTargets(std::move(session.targets), resp->targets);
+
+    auto sess = draft::util::TxSession{std::move(config)};
+
+    spdlog::info("starting tx session.");
+    sess.start(path);
+
+    return sess;
+}
+
+draft::util::Session startRxSession(int svcFd, Options:SessionConfig config)
+{
+    const auto paths = std::vector<std::string>{config.pathRoot};
+
+    auto resp = requestReceive(svcFd, paths);
+
+    if (!resp)
+        throw std::runtime_error("timed-out while waiting for rx response");
+
+    statsMgr().reallocate(resp->config.fileInfo.size());
+    updateFileStats(resp->config.fileInfo);
+
+    config.targets = filterNetworkTargets(std::move(session.targets), resp.targets);
+
+    auto sess = draft::util::RxSession(std::move(config));
+
+    spdlog::info("starting rx session.");
+    sess.start(std::move(*req));
+
+    return sess;
+}
+
+}
+
+int connect(int argc, char **argv)
+{
+    using namespace draft::util;
+
+    static constexpr auto GlobalDisplayLabel = "progress";
+
+    const auto opts = parseOptions(argc, argv);
+
+    installSigHandler();
+
+    auto svcFd = net::connectTcp(opts.session.service.ip, opts.session.service.port);
+
+    auto sess = [svcFd = svcFd.get(), &opts] {
+            if (opts.isSend)
+                return startTxSession(svcFd, opts);
+
+            return startRxSession(svcFd, opts);
+        }();
+
+    // TODO: this, should get response w/info for connection endpoints
+    // create session, w/endpoints
+    // get progress through session
+    // get journal after session
+
+    auto bwMon = BandwidthMonitor{ };
+    auto disp = draft::ui::ProgressDisplay{ };
+    if (opts.showProgress)
+    {
+        disp.init();
+        disp.add("tx progress");
+    }
+
+    auto deadline = Clock::now();
+    while (!done_ && std::visit([](auto &sess) { return sess.runOnce(); }, sess))
+    {
+        if (opts.showProgress)
+            updateDisplay(disp, GlobalDisplayLabel, bwMon);
+
+        std::this_thread::sleep_until(deadline);
+
+        deadline = Clock::now() + 100ms;
+    }
+
+    if (opts.showProgress)
+    {
+        updateDisplay(disp, GlobalDisplayLabel, bwMon);
+        disp.complete();
+    }
+
+    spdlog::info("ending session.");
+    std::visit([](auto &sess) { sess.finish(); }, sess);
 
     dumpStats(stats());
 

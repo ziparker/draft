@@ -101,9 +101,20 @@ struct FileAgentConfig
     bool enableDio{ };
 };
 
-struct TransferRequest
+struct ReceiveRequestResponse
 {
     draft::util::FileAgentConfig config;
+};
+
+struct SendRequestResponse
+{
+    std::vector<NetworkTarget> targets;
+};
+
+struct ErrorResponse
+{
+    std::string msg{ };
+    int errCode{ };
 };
 
 struct BDesc
