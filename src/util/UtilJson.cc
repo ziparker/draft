@@ -55,6 +55,38 @@ void to_json(nlohmann::json &j, const FileInfo &info)
         j["target_suffix"] = info.targetSuffix;
 }
 
+void to_json(nlohmann::json &j, const NetworkTarget &target)
+{
+    j =  {
+        {"ip", target.ip},
+        {"port", target.port}
+    };
+}
+
+void to_json(nlohmann::json &j, const SendResponse &resp)
+{
+    j =  {
+        {"targets", resp.targets}
+    };
+}
+
+void to_json(nlohmann::json &j, const FileAgentConfig &config)
+{
+    j =  {
+        {"info", config.fileInfo},
+        {"root", config.root},
+        {"ringPwr", config.ringPwr},
+        {"enableDio", config.enableDio}
+    };
+}
+
+void to_json(nlohmann::json &j, const ReceiveResponse &resp)
+{
+    j =  {
+        {"config", resp.config}
+    };
+}
+
 void from_json(const nlohmann::json &j, FileInfo::Status &status)
 {
     j.at("mode").get_to(status.mode);
@@ -74,6 +106,19 @@ void from_json(const nlohmann::json &j, FileInfo &info)
     j.at("status").get_to(info.status);
     j.at("id").get_to(info.id);
 }
+
+void from_json(const nlohmann::json &j, NetworkTarget &target);
+
+void from_json(const nlohmann::json &j, SendResponse &resp)
+{
+}
+
+void from_json(const nlohmann::json &j, FileAgentConfig &config);
+
+void from_json(const nlohmann::json &j, ReceiveResponse &resp)
+{
+}
+
 
 Buffer generateTransferRequestMsg(std::vector<FileInfo> info)
 {

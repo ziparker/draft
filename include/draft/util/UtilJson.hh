@@ -35,9 +35,17 @@ namespace draft::util {
 
 void to_json(nlohmann::json &j, const FileInfo::Status &status);
 void to_json(nlohmann::json &j, const FileInfo &info);
+void to_json(nlohmann::json &j, const NetworkTarget &target);
+void to_json(nlohmann::json &j, const SendResponse &resp);
+void to_json(nlohmann::json &j, const FileAgentConfig &config);
+void to_json(nlohmann::json &j, const ReceiveResponse &resp);
 
 void from_json(const nlohmann::json &j, FileInfo::Status &status);
 void from_json(const nlohmann::json &j, FileInfo &info);
+void from_json(const nlohmann::json &j, NetworkTarget &target);
+void from_json(const nlohmann::json &j, SendResponse &resp);
+void from_json(const nlohmann::json &j, FileAgentConfig &config);
+void from_json(const nlohmann::json &j, ReceiveResponse &resp);
 
 Buffer generateTransferRequestMsg(std::vector<FileInfo> info);
 Buffer generateTransferRequestMsg(std::vector<std::string> paths);
