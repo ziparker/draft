@@ -80,7 +80,26 @@ Buffer generateTransferRequestMsg(std::vector<FileInfo> info)
     auto j = nlohmann::json{ };
     j["type"] = 0;
     j["client"] = 0;
-    j["info"] = info;
+    j["info"] = std::move(info);
+
+    auto buf = std::vector<uint8_t>{ };
+    buf.resize(sizeof(wire::ChunkHeader));
+
+    nlohmann::json::to_cbor(j, buf);
+
+    auto header = reinterpret_cast<wire::ChunkHeader *>(buf.data());
+    header->magic = wire::ChunkHeader::Magic;
+    header->payloadLength = buf.size() - sizeof(wire::ChunkHeader);
+
+    return buf;
+}
+
+Buffer generateTransferRequestMsg(std::vector<std::string> paths)
+{
+    auto j = nlohmann::json{ };
+    j["type"] = 0;
+    j["client"] = 0;
+    j["paths"] = std::move(paths);
 
     auto buf = std::vector<uint8_t>{ };
     buf.resize(sizeof(wire::ChunkHeader));

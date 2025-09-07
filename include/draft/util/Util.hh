@@ -101,12 +101,12 @@ struct FileAgentConfig
     bool enableDio{ };
 };
 
-struct ReceiveRequestResponse
+struct ReceiveResponse
 {
     draft::util::FileAgentConfig config;
 };
 
-struct SendRequestResponse
+struct SendResponse
 {
     std::vector<NetworkTarget> targets;
 };
@@ -143,7 +143,8 @@ struct SessionConfig
     std::string pathRoot{"."};
     std::string journalPath{ };
     bool useDirectIO{true};
-    bool noWrite{false};
+    bool noWrite{ };
+    bool isClient{ };
 };
 
 using BufQueue = WaitQueue<BDesc>;

@@ -47,9 +47,17 @@ TxSession::TxSession(SessionConfig conf):
     queue_.setSizeLimit(100);
 
     pool_ = BufferPool::make(BufSize, 35);
-    targetFds_ = connectNetworkTargets(conf_.targets);
 
-    spdlog::info("connected tx targets.");
+    if (conf.isClient)
+    {
+        targetFds_ = connectNetworkTargets(conf_.targets);
+        spdlog::info("connected tx targets.");
+    }
+    else
+    {
+        targetFds_ = bindNetworkTargets(conf_.targets);
+        spdlog::info("bound tx targets.");
+    }
 }
 
 TxSession::~TxSession() noexcept

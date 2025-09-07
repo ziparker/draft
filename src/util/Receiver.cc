@@ -35,6 +35,8 @@
 
 namespace draft::util {
 
+// TODO: ctor for non-svc fd, already connected (client case) - will skip waitConnect()
+
 Receiver::Receiver(ScopedFd fd, BufQueue &queue, BufQueue *hashQueue):
     queue_(&queue),
     hashQueue_(hashQueue),

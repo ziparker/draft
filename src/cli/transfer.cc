@@ -294,17 +294,17 @@ TransferRequestResponse requestSend(int svcFd, const std::vector<draft::util::Fi
 
     spdlog::debug("sent tx req: {}", request.size());
 
-    return awaitResponse<draft::util::SendRequestResponse>(svcFd);
+    return awaitResponse<draft::util::SendResponse>(svcFd);
 }
 
 TransferRequestResponse requestReceive(int svcFd, const std::vector<std::string> &paths)
 {
-    auto request = draft::util::generateTransferRequestMsg(info);
+    auto request = draft::util::generateTransferRequestMsg(paths);
     draft::util::net::writeAll(fd, request.data(), request.size());
 
     spdlog::debug("sent rx req: {}", request.size());
 
-    return awaitResponse<draft::util::ReceiveRequestResponse>(svcFd);
+    return awaitResponse<draft::util::ReceiveResponse>(svcFd);
 }
 
 void dumpStats(const draft::util::Stats &stats)
@@ -506,6 +506,67 @@ draft::util::Session startRxSession(int svcFd, Options:SessionConfig config)
 
 int connect(int argc, char **argv)
 {
+    using namespace draft::util;
+
+    static constexpr auto GlobalDisplayLabel = "progress";
+
+    const auto opts = parseOptions(argc, argv);
+
+    installSigHandler();
+
+    auto svcFd = net::connectTcp(opts.session.service.ip, opts.session.service.port);
+
+    auto sess = [svcFd = svcFd.get(), &opts] {
+            if (opts.isSend)
+                return startTxSession(svcFd, opts);
+
+            return startRxSession(svcFd, opts);
+        }();
+
+    // TODO: this, should get response w/info for connection endpoints
+    // create session, w/endpoints
+    // get progress through session
+    // get journal after session
+
+    auto bwMon = BandwidthMonitor{ };
+    auto disp = draft::ui::ProgressDisplay{ };
+    if (opts.showProgress)
+    {
+        disp.init();
+        disp.add("tx progress");
+    }
+
+    auto deadline = Clock::now();
+    while (!done_ && std::visit([](auto &sess) { return sess.runOnce(); }, sess))
+    {
+        if (opts.showProgress)
+            updateDisplay(disp, GlobalDisplayLabel, bwMon);
+
+        std::this_thread::sleep_until(deadline);
+
+        deadline = Clock::now() + 100ms;
+    }
+
+    if (opts.showProgress)
+    {
+        updateDisplay(disp, GlobalDisplayLabel, bwMon);
+        disp.complete();
+    }
+
+    spdlog::info("ending session.");
+    std::visit([](auto &sess) { sess.finish(); }, sess);
+
+    dumpStats(stats());
+
+    return 0;
+}
+
+int serve(int argc, char **argv)
+{
+    // await xfer request
+    // spawn endpoints - if no response, can't activate endpoint
+    // 
+
     using namespace draft::util;
 
     static constexpr auto GlobalDisplayLabel = "progress";

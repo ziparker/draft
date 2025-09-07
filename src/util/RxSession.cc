@@ -42,7 +42,11 @@ RxSession::RxSession(SessionConfig conf):
     conf_(std::move(conf))
 {
     pool_ = BufferPool::make(BufSize, 35);
-    targetFds_ = bindNetworkTargets(conf_.targets);
+
+    if (conf.isClient)
+        targetFds_ = connectNetworkTargets(conf_.targets);
+    else
+        targetFds_ = bindNetworkTargets(conf_.targets);
 }
 
 RxSession::~RxSession() noexcept

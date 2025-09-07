@@ -45,11 +45,28 @@ Buffer generateTransferRequestMsg(std::vector<std::string> paths);
 TransferRequest deserializeTransferRequest(const Buffer &buf);
 TransferRequest deserializeTransferRequest(const std::vector<uint8_t> &buf);
 
+SendResponse deserializeSendResponse(const Buffer &buf);
+ReceiveResponse deserializeReceiveResponse(const Buffer &buf);
+
 template <typename T>
-T deserializeMessage(const Buffer &buf)
+T deserializeMessage(const Buffer &buf);
+
+template <>
+TransferRequest deserializeMessage<TransferRequest>(const Buffer &buf)
 {
-    if constexpr (std::is_same_v<T, TransferRequest>)
-        return deserializeTransferRequest(buf);
+    return deserializeTransferRequest(buf);
+}
+
+template <>
+TransferRequest deserializeMessage<ReceiveResponse>(const Buffer &buf)
+{
+    return deserializeReceiveResponse(buf);
+}
+
+template <>
+TransferRequest deserializeMessage<SendResponse>(const Buffer &buf)
+{
+    return deserializeSendResponse(buf);
 }
 
 }
