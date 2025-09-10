@@ -107,18 +107,30 @@ void from_json(const nlohmann::json &j, FileInfo &info)
     j.at("id").get_to(info.id);
 }
 
-void from_json(const nlohmann::json &j, NetworkTarget &target);
+void from_json(const nlohmann::json &j, NetworkTarget &target)
+{
+    j.at("ip").get_to(target.ip);
+    j.at("port").get_to(target.port);
+}
 
 void from_json(const nlohmann::json &j, SendResponse &resp)
 {
+    j.at("ip").get_to(target.ip);
+    j.at("port").get_to(target.port);
 }
 
-void from_json(const nlohmann::json &j, FileAgentConfig &config);
+void from_json(const nlohmann::json &j, FileAgentConfig &config)
+{
+    j.at("file_info").get_to(config.fileInfo);
+    j.at("root").get_to(config.root;
+    j.at("ring_pwr").get_to(config.ringPwr;
+    j.at("enable_dio").get_to(config.enableDio;
+}
 
 void from_json(const nlohmann::json &j, ReceiveResponse &resp)
 {
+    j.at("config").get_to(resp.config);
 }
-
 
 Buffer generateTransferRequestMsg(std::vector<FileInfo> info)
 {

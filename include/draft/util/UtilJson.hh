@@ -66,13 +66,13 @@ TransferRequest deserializeMessage<TransferRequest>(const Buffer &buf)
 }
 
 template <>
-TransferRequest deserializeMessage<ReceiveResponse>(const Buffer &buf)
+ReceiveResponse deserializeMessage<ReceiveResponse>(const Buffer &buf)
 {
     return deserializeReceiveResponse(buf);
 }
 
 template <>
-TransferRequest deserializeMessage<SendResponse>(const Buffer &buf)
+SendResponse deserializeMessage<SendResponse>(const Buffer &buf)
 {
     return deserializeSendResponse(buf);
 }
