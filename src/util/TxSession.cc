@@ -48,7 +48,7 @@ TxSession::TxSession(SessionConfig conf):
 
     pool_ = BufferPool::make(BufSize, 35);
 
-    if (conf.isClient)
+    if (conf_.isClient)
     {
         targetFds_ = connectNetworkTargets(conf_.targets);
         spdlog::info("connected tx targets.");

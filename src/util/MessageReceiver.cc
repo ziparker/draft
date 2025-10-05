@@ -84,8 +84,6 @@ wire::ChunkHeader *MessageReceiver::get() const
     }
 
     return header;
-    return deserializeTransferRequest(
-        Buffer{buf_.data() + sizeof(*header), header->payloadLength});
 }
 
 }

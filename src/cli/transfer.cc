@@ -187,6 +187,8 @@ Options parseOptions(int argc, char **argv, TransferMode mode)
         }
     }
 
+    opts.session.isClient = true;
+
     if (optind < subArgc)
     {
         spdlog::error("trailing args..");

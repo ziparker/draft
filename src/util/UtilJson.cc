@@ -172,6 +172,7 @@ Buffer generateTransferRequestMsg(std::vector<std::string> paths)
 
 TransferRequest deserializeTransferRequest(const Buffer &buf)
 {
+    // TODO: delegate in other direction with vec -> buffer.
     return deserializeTransferRequest(buf.vector());
 }
 
